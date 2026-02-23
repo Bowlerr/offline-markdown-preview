@@ -4,11 +4,11 @@
 
 Offline Markdown preview for VS Code with Mermaid diagrams, KaTeX math, secure local rendering, export, scroll sync, and outline navigation.
 
-> Early release note: branding links (GitHub/Marketplace) are still being finalized.
+> Early release note: Marketplace listing details are still being finalized.
 
 **Offline + Secure**: runs locally inside VS Code and the extension does not send your Markdown contents anywhere (no cloud, no telemetry).
 
-> TODO: Add GitHub Actions and VS Code Marketplace badges after the final repository URL and publisher/item ID are set.
+> TODO: Add GitHub Actions and VS Code Marketplace badges (repo is live: `Bowlerr/offline-markdown-preview`) after the publisher/item ID is set.
 
 ## GIF Demos
 

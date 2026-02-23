@@ -11,12 +11,12 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "TODO: add repository URL"
+    "url": "git+https://github.com/Bowlerr/offline-markdown-preview.git"
   },
   "bugs": {
-    "url": "TODO: add issue tracker URL"
+    "url": "https://github.com/Bowlerr/offline-markdown-preview/issues"
   },
-  "homepage": "TODO: add homepage URL",
+  "homepage": "https://github.com/Bowlerr/offline-markdown-preview#readme",
   "galleryBanner": {
     "color": "#1e1e1e",
     "theme": "dark"
