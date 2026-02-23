@@ -1,0 +1,8 @@
+.vscode/**
+.github/**
+src/**
+test/**
+node_modules/**/.cache/**
+*.map
+vitest.config.*
+playwright.config.*

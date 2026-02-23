@@ -1,0 +1,205 @@
+{
+  "name": "offline-markdown-preview",
+  "displayName": "Offline Markdown Preview",
+  "description": "Offline Markdown preview for VS Code with Mermaid diagrams, KaTeX math, secure local rendering, export, scroll sync, and outline navigation.",
+  "version": "0.1.0",
+  "publisher": "local-dev",
+  "author": {
+    "name": "Bowlerr",
+    "email": "cawbsprogramming@gmail.com"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "TODO: add repository URL"
+  },
+  "bugs": {
+    "url": "TODO: add issue tracker URL"
+  },
+  "homepage": "TODO: add homepage URL",
+  "galleryBanner": {
+    "color": "#1e1e1e",
+    "theme": "dark"
+  },
+  "keywords": [
+    "markdown",
+    "markdown-preview",
+    "viewer",
+    "offline",
+    "secure",
+    "mermaid",
+    "katex",
+    "math",
+    "export",
+    "pdf",
+    "html",
+    "scroll-sync",
+    "outline",
+    "vscode",
+    "vscode-extension"
+  ],
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "categories": [
+    "Visualization",
+    "Other",
+    "Debuggers",
+    "Data Science"
+  ],
+  "activationEvents": [
+    "onCommand:offlineMarkdownViewer.openPreview",
+    "onCommand:offlineMarkdownViewer.openPreviewToSide",
+    "onCommand:offlineMarkdownViewer.exportHtml",
+    "onCommand:offlineMarkdownViewer.exportPdf",
+    "onLanguage:markdown"
+  ],
+  "main": "./dist/extension/activate.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "offlineMarkdownViewer.openPreview",
+        "title": "Open Preview",
+        "category": "Offline Markdown Preview"
+      },
+      {
+        "command": "offlineMarkdownViewer.openPreviewToSide",
+        "title": "Open Preview To Side",
+        "category": "Offline Markdown Preview"
+      },
+      {
+        "command": "offlineMarkdownViewer.exportHtml",
+        "title": "Export HTML",
+        "category": "Offline Markdown Preview"
+      },
+      {
+        "command": "offlineMarkdownViewer.exportPdf",
+        "title": "Export PDF",
+        "category": "Offline Markdown Preview"
+      },
+      {
+        "command": "offlineMarkdownViewer.toggleScrollSync",
+        "title": "Toggle Scroll Sync",
+        "category": "Offline Markdown Preview"
+      },
+      {
+        "command": "offlineMarkdownViewer.copyHeadingLink",
+        "title": "Copy Heading Link",
+        "category": "Offline Markdown Preview"
+      },
+      {
+        "command": "offlineMarkdownViewer.quickPickHeading",
+        "title": "Quick Pick Heading",
+        "category": "Offline Markdown Preview"
+      }
+    ],
+    "menus": {
+      "editor/title": [
+        {
+          "command": "offlineMarkdownViewer.openPreviewToSide",
+          "group": "navigation@20",
+          "when": "resourceLangId == markdown"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Offline Markdown Preview",
+      "properties": {
+        "offlineMarkdownViewer.enableMermaid": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable Mermaid diagram rendering in preview (bundled locally)."
+        },
+        "offlineMarkdownViewer.enableMath": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable KaTeX math rendering in preview (bundled locally)."
+        },
+        "offlineMarkdownViewer.scrollSync": {
+          "type": "boolean",
+          "default": true,
+          "description": "Synchronize scrolling between the editor and preview."
+        },
+        "offlineMarkdownViewer.sanitizeHtml": {
+          "type": "boolean",
+          "default": true,
+          "description": "Sanitize rendered HTML in the webview using a strict allowlist. Turning this off is unsafe."
+        },
+        "offlineMarkdownViewer.externalLinks.confirm": {
+          "type": "boolean",
+          "default": true,
+          "description": "Ask for confirmation before opening external links."
+        },
+        "offlineMarkdownViewer.preview.maxImageMB": {
+          "type": "number",
+          "default": 8,
+          "minimum": 1,
+          "maximum": 100,
+          "description": "Maximum image size loaded into preview (megabytes)."
+        },
+        "offlineMarkdownViewer.export.embedImages": {
+          "type": "boolean",
+          "default": false,
+          "description": "When exporting HTML, embed local images as data URIs (privacy warning shown)."
+        },
+        "offlineMarkdownViewer.performance.debounceMs": {
+          "type": "number",
+          "default": 120,
+          "minimum": 30,
+          "maximum": 1000,
+          "description": "Debounce delay for live preview updates."
+        },
+        "offlineMarkdownViewer.preview.customCssPath": {
+          "type": "string",
+          "default": "",
+          "description": "Workspace-local CSS file path to append to the preview (workspace settings only)."
+        },
+        "offlineMarkdownViewer.preview.showFrontmatter": {
+          "type": "boolean",
+          "default": false,
+          "description": "Show parsed YAML frontmatter block above the rendered document."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "build": "node esbuild.config.mjs",
+    "watch": "node esbuild.config.mjs --watch",
+    "lint": "eslint src test --ext .ts",
+    "format": "prettier --write .",
+    "test": "npm run test:unit",
+    "test:unit": "vitest run --config vitest.config.ts",
+    "test:e2e": "node ./test/e2e/runVscodeE2E.mjs",
+    "package": "vsce package --no-dependencies"
+  },
+  "dependencies": {
+    "dompurify": "^3.2.6",
+    "gray-matter": "^4.0.3",
+    "katex": "^0.16.22",
+    "markdown-it": "^14.1.0",
+    "markdown-it-anchor": "^9.2.0",
+    "markdown-it-deflist": "^2.1.0",
+    "markdown-it-footnote": "^4.0.0",
+    "markdown-it-task-lists": "^2.1.1",
+    "mermaid": "^11.12.0",
+    "prismjs": "^1.30.0",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.55.0",
+    "@types/node": "^22.15.30",
+    "@types/prismjs": "^1.26.5",
+    "@types/vscode": "^1.90.0",
+    "@typescript-eslint/eslint-plugin": "^8.34.0",
+    "@typescript-eslint/parser": "^8.34.0",
+    "@vscode/test-electron": "^2.5.2",
+    "esbuild": "^0.25.5",
+    "eslint": "^8.57.0",
+    "eslint-config-prettier": "^10.1.5",
+    "eslint-plugin-import": "^2.32.0",
+    "prettier": "^3.5.3",
+    "typescript": "^5.8.3",
+    "vitest": "^2.1.9",
+    "vsce": "^2.15.0"
+  }
+}

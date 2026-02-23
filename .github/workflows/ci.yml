@@ -1,0 +1,50 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  build-test:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Install
+        working-directory: offline-markdown-viewer-pro
+        run: npm install --no-fund --no-audit
+      - name: Lint
+        working-directory: offline-markdown-viewer-pro
+        run: npm run lint
+      - name: Build
+        working-directory: offline-markdown-viewer-pro
+        run: npm run build
+      - name: Unit tests
+        working-directory: offline-markdown-viewer-pro
+        run: npm run test:unit
+
+  e2e:
+    runs-on: ubuntu-latest
+    needs: build-test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Install
+        working-directory: offline-markdown-viewer-pro
+        run: npm install --no-fund --no-audit
+      - name: Build
+        working-directory: offline-markdown-viewer-pro
+        run: npm run build
+      - name: Install Playwright browsers
+        working-directory: offline-markdown-viewer-pro
+        run: npx playwright install --with-deps chromium
+      - name: E2E (harness)
+        working-directory: offline-markdown-viewer-pro
+        run: npm run test:e2e

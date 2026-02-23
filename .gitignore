@@ -1,0 +1,19 @@
+node_modules/
+
+# Build output
+dist/
+*.vsix
+
+# Test artifacts
+test-results/
+.vscode-test/
+.e2e-extensions/
+.e2e-user-data/
+.e2e-workspace/
+
+# Coverage / caches
+coverage/
+.eslintcache
+
+# OS files
+.DS_Store

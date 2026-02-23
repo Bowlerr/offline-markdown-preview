@@ -1,0 +1,6 @@
+/* KaTeX core styles are bundled from the npm package via import in src/webview-ui/index.ts.
+   This local file keeps the requested repository structure and can host overrides if needed. */
+.omv-math-inline,
+.omv-math-block {
+  white-space: normal;
+}

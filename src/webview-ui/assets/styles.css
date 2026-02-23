@@ -1,0 +1,782 @@
+:root {
+  --omv-bg: var(--vscode-editor-background);
+  --omv-fg: var(--vscode-editor-foreground);
+  --omv-muted: var(--vscode-descriptionForeground, color-mix(in srgb, var(--omv-fg) 60%, transparent));
+  --omv-border: var(--vscode-panel-border, rgba(127, 127, 127, 0.25));
+  --omv-accent: var(--vscode-textLink-foreground, #0f6cbd);
+  --omv-accent-weak: color-mix(in srgb, var(--omv-accent) 18%, transparent);
+  --omv-code-bg: var(
+    --vscode-textCodeBlock-background,
+    color-mix(in srgb, var(--omv-bg) 86%, var(--omv-fg) 14%)
+  );
+  --omv-code-fg: var(--vscode-textPreformat-foreground, var(--vscode-editor-foreground, var(--omv-fg)));
+  --omv-mark-bg: color-mix(in srgb, #ffdb4d 55%, var(--omv-bg));
+  --omv-sidebar-width: 260px;
+  /* Prism in a webview cannot read the active VS Code theme's token colors directly.
+     These variables are tuned to feel closer to VS Code defaults per theme kind. */
+  --omv-syntax-comment: #6a9955;
+  --omv-syntax-keyword: #569cd6;
+  --omv-syntax-string: #ce9178;
+  --omv-syntax-function: #dcdcaa;
+  --omv-syntax-class: #4ec9b0;
+  --omv-syntax-number: #b5cea8;
+  --omv-syntax-constant: #4fc1ff;
+  --omv-syntax-property: #9cdcfe;
+  --omv-syntax-tag: #569cd6;
+  --omv-syntax-attr-name: #9cdcfe;
+  --omv-syntax-operator: var(--omv-code-fg);
+  --omv-syntax-punctuation: color-mix(in srgb, var(--omv-code-fg) 78%, transparent);
+  --omv-syntax-inserted: var(--vscode-gitDecoration-addedResourceForeground, #6a9955);
+  --omv-syntax-deleted: var(--vscode-gitDecoration-deletedResourceForeground, #f44747);
+}
+
+body[data-vscode-theme-kind='light'] {
+  --omv-syntax-comment: #008000;
+  --omv-syntax-keyword: #0000ff;
+  --omv-syntax-string: #a31515;
+  --omv-syntax-function: #795e26;
+  --omv-syntax-class: #267f99;
+  --omv-syntax-number: #098658;
+  --omv-syntax-constant: #0070c1;
+  --omv-syntax-property: #001080;
+  --omv-syntax-tag: #800000;
+  --omv-syntax-attr-name: #e50000;
+}
+
+body[data-vscode-theme-kind='high-contrast'] {
+  --omv-syntax-comment: var(--vscode-terminal-ansiBrightBlack, #9f9f9f);
+  --omv-syntax-keyword: var(--vscode-terminal-ansiBrightBlue, #4fc1ff);
+  --omv-syntax-string: var(--vscode-terminal-ansiBrightGreen, #89d185);
+  --omv-syntax-function: var(--vscode-terminal-ansiBrightYellow, #ffd866);
+  --omv-syntax-class: var(--vscode-terminal-ansiBrightCyan, #66d9ef);
+  --omv-syntax-number: var(--vscode-terminal-ansiBrightYellow, #ffd866);
+  --omv-syntax-constant: var(--vscode-terminal-ansiBrightMagenta, #c586c0);
+  --omv-syntax-property: var(--vscode-terminal-ansiBrightBlue, #9cdcfe);
+  --omv-syntax-tag: var(--vscode-terminal-ansiBrightRed, #ff6b68);
+  --omv-syntax-attr-name: var(--vscode-terminal-ansiBrightCyan, #66d9ef);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  background: var(--omv-bg);
+  color: var(--omv-fg);
+  font-family: var(--vscode-font-family, ui-sans-serif, system-ui, sans-serif);
+  height: 100%;
+}
+
+button,
+input {
+  font: inherit;
+}
+
+#app {
+  height: 100vh;
+  display: grid;
+  grid-template-rows: auto auto 1fr;
+}
+
+.omv-chrome {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.35rem 0.75rem;
+  border-bottom: 1px solid var(--omv-border);
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--omv-bg) 90%, var(--omv-fg) 10%), var(--omv-bg));
+}
+
+.omv-chrome-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  flex-wrap: wrap;
+}
+
+.omv-chrome-btn {
+  border: 1px solid var(--omv-border);
+  background: transparent;
+  color: inherit;
+  border-radius: 999px;
+  padding: 0.18rem 0.55rem;
+  cursor: pointer;
+  font-size: 12px;
+  transition:
+    background-color 120ms ease,
+    border-color 120ms ease,
+    color 120ms ease;
+}
+
+.omv-chrome-btn:hover {
+  background: var(--omv-accent-weak);
+}
+
+.omv-chrome-btn.is-active,
+.omv-chrome-btn[aria-pressed='true'] {
+  background: color-mix(in srgb, var(--omv-accent) 14%, var(--omv-bg));
+  border-color: color-mix(in srgb, var(--omv-accent) 45%, var(--omv-border));
+  color: var(--omv-fg);
+}
+
+.omv-chrome-btn:not(.is-active)[aria-pressed='false'] {
+  color: var(--omv-muted);
+}
+
+.omv-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  border-bottom: 1px solid var(--omv-border);
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--omv-bg) 92%, var(--omv-fg) 8%), var(--omv-bg));
+}
+
+.omv-toolbar[hidden] {
+  display: none !important;
+}
+
+.omv-toolbar input[type='search'] {
+  flex: 1;
+  min-width: 120px;
+  padding: 0.35rem 0.55rem;
+  border: 1px solid var(--omv-border);
+  border-radius: 6px;
+  background: var(--vscode-input-background, var(--omv-bg));
+  color: var(--vscode-input-foreground, var(--omv-fg));
+}
+
+.omv-toolbar button {
+  border: 1px solid var(--omv-border);
+  background: transparent;
+  color: inherit;
+  border-radius: 6px;
+  padding: 0.35rem 0.5rem;
+  cursor: pointer;
+}
+
+.omv-toolbar button:hover {
+  background: var(--omv-accent-weak);
+}
+
+.omv-meta {
+  color: var(--omv-muted);
+  font-size: 12px;
+  min-width: 7rem;
+  text-align: right;
+  margin-left: auto;
+}
+
+.omv-main {
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(180px, var(--omv-sidebar-width)) 1fr;
+}
+
+.omv-main.omv-toc-collapsed {
+  grid-template-columns: 1fr;
+}
+
+.omv-toc {
+  min-height: 0;
+  overflow: auto;
+  border-right: 1px solid var(--omv-border);
+  padding: 0.4rem 0.35rem 0.6rem;
+}
+
+.omv-toc h2 {
+  margin: 0.2rem 0.4rem 0.5rem;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--omv-muted);
+}
+
+.omv-toc button {
+  width: 100%;
+  text-align: left;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  padding: 0.28rem 0.4rem;
+  border-radius: 5px;
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.omv-toc button:hover,
+.omv-toc button[aria-current='true'] {
+  background: var(--omv-accent-weak);
+}
+
+.omv-preview-scroll {
+  min-height: 0;
+  overflow: auto;
+  position: relative;
+}
+
+.omv-preview {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 1rem 1.25rem 3rem;
+}
+
+.omv-frontmatter {
+  border: 1px solid var(--omv-border);
+  border-radius: 8px;
+  padding: 0.7rem;
+  margin-bottom: 1rem;
+  background: color-mix(in srgb, var(--omv-bg) 94%, var(--omv-fg) 6%);
+}
+
+.omv-frontmatter summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.omv-frontmatter pre {
+  white-space: pre-wrap;
+  margin: 0.5rem 0 0;
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.omv-content {
+  line-height: 1.6;
+  word-wrap: break-word;
+}
+
+.omv-content h1,
+.omv-content h2,
+.omv-content h3,
+.omv-content h4,
+.omv-content h5,
+.omv-content h6 {
+  scroll-margin-top: 1rem;
+  position: relative;
+}
+
+.omv-content .omv-heading-anchor {
+  opacity: 0;
+  margin-left: 0.35rem;
+  text-decoration: none;
+  color: var(--omv-accent);
+  font-weight: 400;
+  font-size: 0.8em;
+}
+
+.omv-content h1:hover .omv-heading-anchor,
+.omv-content h2:hover .omv-heading-anchor,
+.omv-content h3:hover .omv-heading-anchor,
+.omv-content h4:hover .omv-heading-anchor,
+.omv-content h5:hover .omv-heading-anchor,
+.omv-content h6:hover .omv-heading-anchor,
+.omv-content h1:focus-within .omv-heading-anchor,
+.omv-content h2:focus-within .omv-heading-anchor,
+.omv-content h3:focus-within .omv-heading-anchor,
+.omv-content h4:focus-within .omv-heading-anchor,
+.omv-content h5:focus-within .omv-heading-anchor,
+.omv-content h6:focus-within .omv-heading-anchor {
+  opacity: 1;
+}
+
+.omv-content a {
+  color: var(--omv-accent);
+}
+
+.omv-content img {
+  max-width: 100%;
+  height: auto;
+  border-radius: 4px;
+}
+
+.omv-content pre {
+  padding: 0.8rem;
+  overflow: auto;
+  border-radius: 8px;
+  background: var(--omv-code-bg);
+  border: 1px solid var(--omv-border);
+}
+
+.omv-content code {
+  font-family: var(--vscode-editor-font-family, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 0.92em;
+  color: var(--omv-code-fg);
+}
+
+.omv-content :not(pre) > code {
+  background: var(--omv-code-bg);
+  padding: 0.1rem 0.25rem;
+  border-radius: 4px;
+}
+
+.omv-content table {
+  width: 100%;
+  border-collapse: collapse;
+  display: block;
+  overflow-x: auto;
+}
+
+.omv-content th,
+.omv-content td {
+  border: 1px solid var(--omv-border);
+  padding: 0.35rem 0.5rem;
+}
+
+.omv-content th[data-align='left'],
+.omv-content td[data-align='left'],
+.omv-content th[align='left'],
+.omv-content td[align='left'],
+.omv-content th.omv-align-left,
+.omv-content td.omv-align-left {
+  text-align: left;
+}
+
+.omv-content th[data-align='center'],
+.omv-content td[data-align='center'],
+.omv-content th[align='center'],
+.omv-content td[align='center'],
+.omv-content th.omv-align-center,
+.omv-content td.omv-align-center {
+  text-align: center !important;
+}
+
+.omv-content th[data-align='right'],
+.omv-content td[data-align='right'],
+.omv-content th[align='right'],
+.omv-content td[align='right'],
+.omv-content th.omv-align-right,
+.omv-content td.omv-align-right {
+  text-align: right;
+}
+
+.omv-content blockquote {
+  margin: 0.6rem 0;
+  padding: 0.2rem 0.8rem;
+  border-left: 4px solid var(--omv-border);
+  color: var(--omv-muted);
+}
+
+.omv-content .omv-mermaid {
+  padding: 0.5rem;
+  border: 1px solid var(--omv-border);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--omv-bg) 96%, var(--omv-fg) 4%);
+  overflow: hidden;
+}
+
+.omv-content .omv-mermaid[aria-busy='true'] {
+  position: relative;
+}
+
+.omv-content .omv-mermaid-loading {
+  display: grid;
+  place-items: center;
+  gap: 0.5rem;
+  min-height: 140px;
+  border: 1px dashed color-mix(in srgb, var(--omv-border) 80%, transparent);
+  border-radius: 8px;
+  background:
+    linear-gradient(
+      110deg,
+      color-mix(in srgb, var(--omv-bg) 96%, var(--omv-fg) 4%) 30%,
+      color-mix(in srgb, var(--omv-bg) 90%, var(--omv-fg) 10%) 45%,
+      color-mix(in srgb, var(--omv-bg) 96%, var(--omv-fg) 4%) 60%
+    );
+  background-size: 220% 100%;
+  animation: omv-mermaid-loading-sheen 1.4s linear infinite;
+}
+
+.omv-content .omv-mermaid-loading-spinner {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: 2px solid color-mix(in srgb, var(--omv-fg) 20%, transparent);
+  border-top-color: var(--omv-accent);
+  animation: omv-mermaid-loading-spin 0.9s linear infinite;
+}
+
+.omv-content .omv-mermaid-loading-label {
+  font-size: 12px;
+  color: var(--omv-muted);
+  text-align: center;
+}
+
+.omv-content .omv-mermaid-interactive {
+  display: grid;
+  grid-template-rows: auto 1fr;
+  gap: 0.45rem;
+}
+
+.omv-content .omv-mermaid-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  flex-wrap: wrap;
+}
+
+.omv-content .omv-mermaid-btn {
+  border: 1px solid var(--omv-border);
+  background: transparent;
+  color: inherit;
+  border-radius: 6px;
+  padding: 0.2rem 0.45rem;
+  min-width: 2rem;
+  cursor: pointer;
+}
+
+.omv-content .omv-mermaid-btn:hover {
+  background: var(--omv-accent-weak);
+}
+
+.omv-content .omv-mermaid-hint {
+  color: var(--omv-muted);
+  font-size: 12px;
+  margin-left: auto;
+}
+
+.omv-content .omv-mermaid-viewport {
+  position: relative;
+  border: 1px solid var(--omv-border);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--omv-bg) 98%, var(--omv-fg) 2%);
+  overflow: hidden;
+  cursor: grab;
+  touch-action: none;
+  outline: none;
+}
+
+.omv-content .omv-mermaid-viewport:focus-visible {
+  box-shadow: 0 0 0 2px var(--omv-accent-weak);
+}
+
+.omv-content .omv-mermaid-viewport.is-dragging {
+  cursor: grabbing;
+}
+
+.omv-content .omv-mermaid-canvas {
+  position: absolute;
+  left: 0;
+  top: 0;
+  transform-origin: 0 0;
+  will-change: transform;
+  width: max-content;
+}
+
+.omv-content .omv-mermaid svg {
+  display: block;
+  width: auto;
+  max-width: 100%;
+  height: auto;
+  margin: 0;
+}
+
+.omv-content .omv-mermaid svg[data-omv-diagram-type='flowchart'] g.edgeLabel rect.labelBkg,
+.omv-content .omv-mermaid svg[data-omv-diagram-type='graph'] g.edgeLabel rect.labelBkg,
+.omv-content .omv-mermaid svg rect.omv-edge-label-bkg,
+.omv-content .omv-mermaid svg rect[data-omv-edge-label-bkg='true'] {
+  fill: color-mix(in srgb, var(--omv-bg) 90%, var(--omv-fg) 10%) !important;
+  stroke: color-mix(in srgb, var(--omv-accent) 28%, var(--omv-border)) !important;
+  stroke-width: 1 !important;
+  filter: drop-shadow(0 1px 0 color-mix(in srgb, var(--omv-bg) 55%, transparent));
+}
+
+.omv-content .omv-mermaid svg[data-omv-diagram-type='flowchart'] g.edgeLabel .label,
+.omv-content .omv-mermaid svg[data-omv-diagram-type='graph'] g.edgeLabel .label {
+  background: transparent !important;
+  border-radius: 8px;
+  box-shadow: none !important;
+}
+
+.omv-content .omv-mermaid svg[data-omv-diagram-type='flowchart'] g.edgeLabel .label p,
+.omv-content .omv-mermaid svg[data-omv-diagram-type='graph'] g.edgeLabel .label p {
+  margin: 0;
+  background: transparent !important;
+}
+
+/* Sequence diagram self-message/callout labels should not inherit the flowchart chip look. */
+.omv-content .omv-mermaid svg[data-omv-diagram-type='sequencediagram'] rect.labelBkg {
+  fill: transparent !important;
+  stroke: none !important;
+  filter: none !important;
+}
+
+.omv-content .omv-mermaid svg[data-omv-diagram-type='sequencediagram'] .actor-line,
+.omv-content .omv-mermaid svg[data-omv-diagram-type='sequencediagram'] .messageLine0,
+.omv-content .omv-mermaid svg[data-omv-diagram-type='sequencediagram'] .messageLine1 {
+  stroke: var(--omv-fg) !important;
+  stroke-opacity: 0.95 !important;
+}
+
+.omv-content .omv-mermaid svg[data-omv-diagram-type='sequencediagram'] .messageLine0,
+.omv-content .omv-mermaid svg[data-omv-diagram-type='sequencediagram'] .messageLine1,
+.omv-content .omv-mermaid svg[data-omv-diagram-type='sequencediagram'] .innerArc {
+  fill: none !important;
+}
+
+.omv-content .omv-mermaid svg[data-omv-diagram-type='sequencediagram'] #arrowhead path,
+.omv-content .omv-mermaid svg[data-omv-diagram-type='sequencediagram'] #crosshead path {
+  fill: var(--omv-fg) !important;
+  stroke: var(--omv-fg) !important;
+  stroke-opacity: 0.95 !important;
+}
+
+.omv-content .omv-mermaid svg[data-omv-diagram-type='sequencediagram'] #sequencenumber {
+  fill: color-mix(in srgb, var(--omv-bg) 92%, var(--omv-fg) 8%) !important;
+  stroke: var(--omv-fg) !important;
+  stroke-opacity: 0.65 !important;
+}
+
+/* ER diagram relationship labels should not inherit markdown container word-wrapping. */
+.omv-content .omv-mermaid svg[data-omv-diagram-type='erdiagram'] .edgeLabel .label,
+.omv-content .omv-mermaid svg[data-omv-diagram-type='erdiagram'] .edgeLabel .label p,
+.omv-content .omv-mermaid svg[data-omv-diagram-type='erdiagram'] .edgeLabel .label span {
+  white-space: normal !important;
+  word-break: normal !important;
+  overflow-wrap: normal !important;
+  hyphens: none !important;
+  line-height: 1.15 !important;
+}
+
+.omv-content .omv-mermaid svg[data-omv-diagram-type='erdiagram'] .edgeLabel .label {
+  font-size: 12px !important;
+}
+
+.omv-content .omv-mermaid svg[data-omv-diagram-type='erdiagram'] .edgeLabel .label p {
+  margin: 0 !important;
+}
+
+/* Mindmap: prefer readable label text over Mermaid's derived palette text colors. */
+.omv-content .omv-mermaid svg[data-omv-diagram-type='mindmap'] .mindmap-node-label,
+.omv-content .omv-mermaid svg[data-omv-diagram-type='mindmap'] .mindmap-node-label tspan,
+.omv-content .omv-mermaid svg[data-omv-diagram-type='mindmap'] .section-root text,
+.omv-content .omv-mermaid svg[data-omv-diagram-type='mindmap'] .section-root tspan {
+  fill: #f5f7fa !important;
+  stroke: none !important;
+}
+
+.omv-content .omv-mermaid svg[data-omv-diagram-type='mindmap'] .section-root span,
+.omv-content .omv-mermaid svg[data-omv-diagram-type='mindmap'] .section-0 span,
+.omv-content .omv-mermaid svg[data-omv-diagram-type='mindmap'] .section-1 span,
+.omv-content .omv-mermaid svg[data-omv-diagram-type='mindmap'] .section-2 span,
+.omv-content .omv-mermaid svg[data-omv-diagram-type='mindmap'] .section-3 span {
+  color: #f5f7fa !important;
+}
+
+.omv-content .omv-mermaid svg[data-omv-diagram-type='mindmap'] .node-icon-0,
+.omv-content .omv-mermaid svg[data-omv-diagram-type='mindmap'] .node-icon-1,
+.omv-content .omv-mermaid svg[data-omv-diagram-type='mindmap'] .node-icon-2,
+.omv-content .omv-mermaid svg[data-omv-diagram-type='mindmap'] .node-icon-3,
+.omv-content .omv-mermaid svg[data-omv-diagram-type='mindmap'] .node-icon-4 {
+  color: #f5f7fa !important;
+}
+
+.omv-content .omv-mermaid-error {
+  border: 1px solid color-mix(in srgb, #d13438 45%, var(--omv-border));
+  background: color-mix(in srgb, #d13438 8%, var(--omv-bg));
+  border-radius: 8px;
+  padding: 0.6rem;
+}
+
+.omv-content .omv-mermaid-error-title {
+  font-weight: 600;
+  margin-bottom: 0.2rem;
+}
+
+.omv-content .omv-mermaid-error-message {
+  color: var(--omv-muted);
+  font-size: 12px;
+  margin-bottom: 0.5rem;
+  white-space: pre-wrap;
+}
+
+.omv-content .omv-mermaid-error-source {
+  margin: 0;
+}
+
+@keyframes omv-mermaid-loading-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes omv-mermaid-loading-sheen {
+  0% {
+    background-position: 100% 0;
+  }
+  100% {
+    background-position: -100% 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .omv-content .omv-mermaid-loading,
+  .omv-content .omv-mermaid-loading-spinner {
+    animation: none;
+  }
+}
+
+.omv-content .omv-math-block {
+  display: block;
+  margin: 0.6rem 0;
+  overflow-x: auto;
+}
+
+.omv-search-hit {
+  background: var(--omv-mark-bg);
+  color: inherit;
+  padding: 0 1px;
+  border-radius: 2px;
+}
+
+.omv-search-hit[aria-current='true'] {
+  outline: 1px solid var(--omv-accent);
+}
+
+.omv-status-banner {
+  border: 1px solid var(--omv-border);
+  padding: 0.5rem 0.75rem;
+  border-radius: 8px;
+  margin-bottom: 0.75rem;
+  background: color-mix(in srgb, var(--omv-bg) 94%, var(--omv-fg) 6%);
+}
+
+.omv-content :is(pre[class*='language-'], code[class*='language-']) {
+  color: var(--omv-code-fg);
+  text-shadow: none;
+}
+
+.omv-content pre[class*='language-'] code[class*='language-'] {
+  background: transparent;
+  padding: 0;
+}
+
+.omv-content :is(pre[class*='language-'], code[class*='language-']) .token.comment,
+.omv-content :is(pre[class*='language-'], code[class*='language-']) .token.prolog,
+.omv-content :is(pre[class*='language-'], code[class*='language-']) .token.doctype,
+.omv-content :is(pre[class*='language-'], code[class*='language-']) .token.cdata {
+  color: var(--omv-syntax-comment);
+  font-style: italic;
+}
+
+.omv-content :is(pre[class*='language-'], code[class*='language-']) .token.keyword,
+.omv-content :is(pre[class*='language-'], code[class*='language-']) .token.selector,
+.omv-content :is(pre[class*='language-'], code[class*='language-']) .token.important,
+.omv-content :is(pre[class*='language-'], code[class*='language-']) .token.atrule {
+  color: var(--omv-syntax-keyword);
+}
+
+.omv-content :is(pre[class*='language-'], code[class*='language-']) .token.string,
+.omv-content :is(pre[class*='language-'], code[class*='language-']) .token.char,
+.omv-content :is(pre[class*='language-'], code[class*='language-']) .token.attr-value,
+.omv-content :is(pre[class*='language-'], code[class*='language-']) .token.regex,
+.omv-content :is(pre[class*='language-'], code[class*='language-']) .token.inserted {
+  color: var(--omv-syntax-string);
+}
+
+.omv-content :is(pre[class*='language-'], code[class*='language-']) .token.function {
+  color: var(--omv-syntax-function);
+}
+
+.omv-content :is(pre[class*='language-'], code[class*='language-']) .token.class-name {
+  color: var(--omv-syntax-class);
+}
+
+.omv-content :is(pre[class*='language-'], code[class*='language-']) .token.number,
+.omv-content :is(pre[class*='language-'], code[class*='language-']) .token.boolean,
+.omv-content :is(pre[class*='language-'], code[class*='language-']) .token.constant,
+.omv-content :is(pre[class*='language-'], code[class*='language-']) .token.symbol {
+  color: var(--omv-syntax-number);
+}
+
+.omv-content :is(pre[class*='language-'], code[class*='language-']) .token.deleted {
+  color: var(--omv-syntax-deleted);
+}
+
+.omv-content :is(pre[class*='language-'], code[class*='language-']) .token.property,
+.omv-content :is(pre[class*='language-'], code[class*='language-']) .token.parameter,
+.omv-content :is(pre[class*='language-'], code[class*='language-']) .token.variable {
+  color: var(--omv-syntax-property);
+}
+
+.omv-content :is(pre[class*='language-'], code[class*='language-']) .token.builtin,
+.omv-content :is(pre[class*='language-'], code[class*='language-']) .token.annotation {
+  color: var(--omv-syntax-constant);
+}
+
+.omv-content :is(pre[class*='language-'], code[class*='language-']) .token.operator,
+.omv-content :is(pre[class*='language-'], code[class*='language-']) .token.entity,
+.omv-content :is(pre[class*='language-'], code[class*='language-']) .token.url {
+  color: var(--omv-syntax-operator);
+}
+
+.omv-content :is(pre[class*='language-'], code[class*='language-']) .token.punctuation {
+  color: var(--omv-syntax-punctuation);
+}
+
+.omv-content :is(pre[class*='language-'], code[class*='language-']) .token.tag,
+.omv-content :is(pre[class*='language-'], code[class*='language-']) .token.namespace {
+  color: var(--omv-syntax-tag);
+}
+
+.omv-content :is(pre[class*='language-'], code[class*='language-']) .token.attr-name {
+  color: var(--omv-syntax-attr-name);
+}
+
+.omv-content :is(pre[class*='language-'], code[class*='language-']) .token.bold,
+.omv-content :is(pre[class*='language-'], code[class*='language-']) .token.important {
+  font-weight: 600;
+}
+
+.omv-content :is(pre[class*='language-'], code[class*='language-']) .token.italic {
+  font-style: italic;
+}
+
+body[data-vscode-theme-kind='high-contrast']
+  .omv-content
+  :is(pre[class*='language-'], code[class*='language-'])
+  .token.comment {
+  font-style: normal;
+  text-decoration: underline dotted;
+}
+
+@media (max-width: 860px) {
+  .omv-main {
+    grid-template-columns: 1fr;
+  }
+
+  .omv-main.omv-toc-collapsed {
+    grid-template-columns: 1fr;
+  }
+
+  .omv-toc {
+    max-height: 160px;
+    border-right: 0;
+    border-bottom: 1px solid var(--omv-border);
+  }
+
+  .omv-toolbar {
+    flex-wrap: wrap;
+  }
+
+  .omv-toolbar input[type='search'] {
+    min-width: 0;
+    width: 100%;
+    flex-basis: 100%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    scroll-behavior: auto !important;
+    animation: none !important;
+    transition: none !important;
+  }
+}
