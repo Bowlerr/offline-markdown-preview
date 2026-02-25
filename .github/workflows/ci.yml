@@ -16,16 +16,16 @@ jobs:
         with:
           node-version: 20
       - name: Install
-        working-directory: offline-markdown-viewer-pro
+        working-directory: offline-markdown-preview
         run: npm install --no-fund --no-audit
       - name: Lint
-        working-directory: offline-markdown-viewer-pro
+        working-directory: offline-markdown-preview
         run: npm run lint
       - name: Build
-        working-directory: offline-markdown-viewer-pro
+        working-directory: offline-markdown-preview
         run: npm run build
       - name: Unit tests
-        working-directory: offline-markdown-viewer-pro
+        working-directory: offline-markdown-preview
         run: npm run test:unit
 
   e2e:
@@ -37,14 +37,14 @@ jobs:
         with:
           node-version: 20
       - name: Install
-        working-directory: offline-markdown-viewer-pro
+        working-directory: offline-markdown-preview
         run: npm install --no-fund --no-audit
       - name: Build
-        working-directory: offline-markdown-viewer-pro
+        working-directory: offline-markdown-preview
         run: npm run build
       - name: Install Playwright browsers
-        working-directory: offline-markdown-viewer-pro
+        working-directory: offline-markdown-preview
         run: npx playwright install --with-deps chromium
       - name: E2E (harness)
-        working-directory: offline-markdown-viewer-pro
+        working-directory: offline-markdown-preview
         run: npm run test:e2e

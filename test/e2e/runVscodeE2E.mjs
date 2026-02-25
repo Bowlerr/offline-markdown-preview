@@ -1,26 +1,34 @@
-import { mkdirSync, writeFileSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { dirname, join, resolve } from 'node:path';
 import { spawn } from 'node:child_process';
-import { downloadAndUnzipVSCode, resolveCliPathFromVSCodeExecutablePath } from '@vscode/test-electron';
+import { createRequire } from 'node:module';
+import { downloadAndUnzipVSCode } from '@vscode/test-electron';
 
 const root = process.cwd();
+const require = createRequire(import.meta.url);
 const fixtureDir = resolve(root, '.e2e-workspace');
 const userDataDir = resolve(root, '.e2e-user-data');
 const extensionsDir = resolve(root, '.e2e-extensions');
 mkdirSync(fixtureDir, { recursive: true });
 mkdirSync(userDataDir, { recursive: true });
 mkdirSync(extensionsDir, { recursive: true });
-writeFileSync(
-  join(fixtureDir, 'sample.md'),
-  `# Sample\n\n## Mermaid\n\n\`\`\`mermaid\ngraph TD; A-->B;\n\`\`\`\n\n## Math\n\nInline $a^2+b^2=c^2$\n`,
-  'utf8'
-);
+
+// Preserve checked-in fixtures. Only create a minimal fallback when running in a fresh workspace.
+const fallbackSamplePath = join(fixtureDir, 'sample.md');
+if (!existsSync(fallbackSamplePath)) {
+  writeFileSync(
+    fallbackSamplePath,
+    `# Sample\n\n## Mermaid\n\n\`\`\`mermaid\ngraph TD; A-->B;\n\`\`\`\n\n## Math\n\nInline $a^2+b^2=c^2$\n`,
+    'utf8'
+  );
+}
 
 const executablePath = await downloadAndUnzipVSCode('stable');
-const cliPath = resolveCliPathFromVSCodeExecutablePath(executablePath);
+const playwrightCliPath = join(dirname(require.resolve('playwright')), 'cli.js');
 
-await run(cliPath, ['--version']);
-await run(process.execPath, [resolve(root, 'node_modules', 'playwright', 'cli.js'), 'test', 'test/e2e'], {
+// Validate the downloaded VS Code binary directly. CLI path resolution is less portable across hosts.
+await run(executablePath, ['--version']);
+await run(process.execPath, [playwrightCliPath, 'test', 'test/e2e', '--workers=1'], {
   env: {
     ...process.env,
     RUN_VSCODE_E2E: '1',
