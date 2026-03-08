@@ -35,6 +35,7 @@ interface RuntimeSettings {
   enableMath: boolean;
   scrollSync: boolean;
   sanitizeHtml: boolean;
+  autoOpenPreview: boolean;
   showFrontmatter: boolean;
   externalConfirm: boolean;
   maxImageMB: number;
@@ -49,6 +50,7 @@ function getSettings(resource?: vscode.Uri): RuntimeSettings {
     enableMath: cfg.get<boolean>('enableMath', true),
     scrollSync: cfg.get<boolean>('scrollSync', true),
     sanitizeHtml: cfg.get<boolean>('sanitizeHtml', true),
+    autoOpenPreview: cfg.get<boolean>('preview.autoOpen', true),
     showFrontmatter: cfg.get<boolean>('preview.showFrontmatter', false),
     externalConfirm: cfg.get<boolean>('externalLinks.confirm', true),
     maxImageMB: cfg.get<number>('preview.maxImageMB', 8),
@@ -101,6 +103,10 @@ export class PreviewController implements vscode.Disposable {
   private suppressEditorScrollUntil = 0;
   private unsafeHtmlAcknowledged = false;
   private followActiveMarkdownBeside = false;
+  private autoOpenInFlight = false;
+  private relocatingEditor = false;
+  private preferredMarkdownColumn: vscode.ViewColumn | undefined;
+  private lastPreviewColumn: vscode.ViewColumn | undefined;
   private htmlExportSnapshotReqId = 0;
   private pendingHtmlExportSnapshot:
     | {
@@ -123,13 +129,49 @@ export class PreviewController implements vscode.Disposable {
       }),
       vscode.window.onDidChangeActiveTextEditor((editor) => {
         if (editor?.document.languageId === 'markdown') {
+          if (this.relocatingEditor) {
+            this.currentEditor = editor;
+            return;
+          }
+
+          const previewColumn = this.panel?.viewColumn ?? this.lastPreviewColumn;
+          const editorColumn = editor.viewColumn;
+          if (
+            previewColumn &&
+            editorColumn &&
+            editorColumn === previewColumn &&
+            this.preferredMarkdownColumn &&
+            this.preferredMarkdownColumn !== previewColumn
+          ) {
+            void this.relocateMarkdownOutOfPreviewColumn(editor, previewColumn);
+            return;
+          }
+
           this.currentEditor = editor;
+          if (editorColumn && editorColumn !== previewColumn) {
+            this.preferredMarkdownColumn = editorColumn;
+          }
+          void this.tryAutoOpenPreview(editor);
           if (this.panel && this.followActiveMarkdownBeside && this.panel.visible) {
-            // Keep preview paired beside the active markdown editor without stealing focus.
-            this.panel.reveal(vscode.ViewColumn.Beside, true);
+            // Keep preview open without relocating it to a new group on every file switch.
+            this.panel.reveal(this.panel.viewColumn ?? this.lastPreviewColumn ?? vscode.ViewColumn.Beside, true);
           }
           // File switches should feel instant; debounce is still used for document edits.
           this.scheduleRender(true);
+        }
+      }),
+      vscode.workspace.onDidCloseTextDocument((document) => {
+        if (document.languageId !== 'markdown') return;
+        if (!this.panel) return;
+        const previewUri = this.state.snapshot?.uri.toString();
+        if (previewUri && previewUri === document.uri.toString()) {
+          const panel = this.panel;
+          this.lastPreviewColumn = panel.viewColumn ?? this.lastPreviewColumn;
+          this.panel = undefined;
+          panel.dispose();
+          this.currentEditor = undefined;
+          this.state = { toc: [] };
+          this.outlineEmitter.fire([]);
         }
       }),
       vscode.window.onDidChangeTextEditorVisibleRanges((e) => {
@@ -149,16 +191,35 @@ export class PreviewController implements vscode.Disposable {
       }),
       vscode.workspace.onDidChangeConfiguration((e) => {
         if (e.affectsConfiguration('offlineMarkdownViewer')) {
+          if (
+            this.currentEditor &&
+            this.currentEditor.document.languageId === 'markdown' &&
+            e.affectsConfiguration('offlineMarkdownViewer.preview.autoOpen')
+          ) {
+            void this.tryAutoOpenPreview(this.currentEditor);
+          }
           this.scheduleRender(true);
         }
       })
     );
 
     this.currentEditor = vscode.window.activeTextEditor;
+    if (this.currentEditor?.document.languageId === 'markdown') {
+      this.preferredMarkdownColumn = this.currentEditor.viewColumn;
+      void this.tryAutoOpenPreview(this.currentEditor);
+    }
   }
 
-  async openPreview(sideBySide = false): Promise<void> {
-    const editor = vscode.window.activeTextEditor;
+  async openPreview(
+    sideBySide = false,
+    preserveFocus = false,
+    targetColumn?: vscode.ViewColumn,
+    sourceEditor?: vscode.TextEditor
+  ): Promise<void> {
+    const editor =
+      sourceEditor && sourceEditor.document.languageId === 'markdown'
+        ? sourceEditor
+        : vscode.window.activeTextEditor;
     if (!editor || editor.document.languageId !== 'markdown') {
       void vscode.window.showInformationMessage('Open a Markdown file to preview.');
       return;
@@ -168,15 +229,25 @@ export class PreviewController implements vscode.Disposable {
     this.followActiveMarkdownBeside = sideBySide;
 
     if (this.panel) {
-      this.panel.reveal(sideBySide ? vscode.ViewColumn.Beside : vscode.ViewColumn.Active, true);
-      await this.renderNow();
-      return;
+      try {
+        const revealColumn = this.panel.viewColumn ?? targetColumn ?? this.lastPreviewColumn;
+        this.panel.reveal(revealColumn, preserveFocus);
+        this.lastPreviewColumn = this.panel.viewColumn ?? revealColumn;
+        await this.renderNow();
+        return;
+      } catch (error) {
+        if (!isDisposedWebviewError(error)) {
+          throw error;
+        }
+        this.panel = undefined;
+      }
     }
 
+    const initialColumn = targetColumn ?? (sideBySide ? vscode.ViewColumn.Beside : vscode.ViewColumn.Active);
     this.panel = vscode.window.createWebviewPanel(
       'offlineMarkdownViewer.preview',
       `Offline Preview: ${path.basename(editor.document.uri.fsPath)}`,
-      sideBySide ? vscode.ViewColumn.Beside : vscode.ViewColumn.Active,
+      initialColumn,
       {
         enableScripts: true,
         retainContextWhenHidden: true,
@@ -192,14 +263,22 @@ export class PreviewController implements vscode.Disposable {
     this.disposables.push(
       this.panel,
       this.panel.onDidDispose(() => {
+        this.lastPreviewColumn = this.panel?.viewColumn ?? this.lastPreviewColumn;
         this.panel = undefined;
+      }),
+      this.panel.onDidChangeViewState((event) => {
+        this.lastPreviewColumn = event.webviewPanel.viewColumn ?? this.lastPreviewColumn;
       }),
       this.panel.webview.onDidReceiveMessage((msg: unknown) => {
         void this.handleWebviewMessage(msg);
       })
     );
 
+    this.lastPreviewColumn = this.panel.viewColumn ?? initialColumn;
     await this.renderNow();
+    if (preserveFocus) {
+      await vscode.window.showTextDocument(editor.document, editor.viewColumn, false);
+    }
   }
 
   async exportHtml(): Promise<void> {
@@ -355,6 +434,64 @@ export class PreviewController implements vscode.Disposable {
     this.renderTimer = setTimeout(() => {
       void this.renderNow();
     }, delay);
+  }
+
+  private async relocateMarkdownOutOfPreviewColumn(
+    editor: vscode.TextEditor,
+    previewColumn: vscode.ViewColumn
+  ): Promise<void> {
+    if (this.relocatingEditor) return;
+    this.relocatingEditor = true;
+    try {
+      let relocated = editor;
+      if (this.preferredMarkdownColumn) {
+        relocated = await vscode.window.showTextDocument(editor.document, {
+          viewColumn: this.preferredMarkdownColumn,
+          preview: false
+        });
+        await this.closeMarkdownTabsInColumn(editor.document.uri, previewColumn);
+      }
+      this.currentEditor = relocated;
+      if (!this.panel) {
+        await this.openPreview(false, true, previewColumn, relocated);
+      } else {
+        this.panel.reveal(this.panel.viewColumn ?? previewColumn, true);
+        await this.renderNow();
+      }
+    } finally {
+      this.relocatingEditor = false;
+    }
+  }
+
+  private async closeMarkdownTabsInColumn(uri: vscode.Uri, column: vscode.ViewColumn): Promise<void> {
+    const targetGroup = vscode.window.tabGroups.all.find((group) => group.viewColumn === column);
+    if (!targetGroup) return;
+
+    const tabsToClose = targetGroup.tabs.filter((tab) => {
+      return tab.input instanceof vscode.TabInputText && tab.input.uri.toString() === uri.toString();
+    });
+
+    if (tabsToClose.length === 0) return;
+
+    try {
+      await vscode.window.tabGroups.close(tabsToClose, true);
+    } catch {
+      // Best-effort cleanup. If closing fails, rendering still proceeds in the preferred editor column.
+    }
+  }
+
+  private async tryAutoOpenPreview(editor: vscode.TextEditor): Promise<void> {
+    if (this.autoOpenInFlight) return;
+    const settings = getSettings(editor.document.uri);
+    if (!settings.autoOpenPreview) return;
+    if (this.panel?.visible) return;
+
+    this.autoOpenInFlight = true;
+    try {
+      await this.openPreview(true, true, undefined, editor);
+    } finally {
+      this.autoOpenInFlight = false;
+    }
   }
 
   private async renderNow(): Promise<void> {
@@ -536,7 +673,15 @@ export class PreviewController implements vscode.Disposable {
 
   private postMessage(message: ExtensionToWebviewMessage): void {
     if (!this.panel) return;
-    void this.panel.webview.postMessage(message);
+    try {
+      void this.panel.webview.postMessage(message);
+    } catch (error) {
+      if (isDisposedWebviewError(error)) {
+        this.panel = undefined;
+      } else {
+        throw error;
+      }
+    }
   }
 
   private async requestRenderedHtmlExportSnapshot(): Promise<string | undefined> {
@@ -769,6 +914,11 @@ function escapeHtml(value: string): string {
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;');
+}
+
+function isDisposedWebviewError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error ?? '');
+  return /webview is disposed/i.test(message) || /disposed/i.test(message);
 }
 
 function getHeadlessBrowserCandidates(): string[] {

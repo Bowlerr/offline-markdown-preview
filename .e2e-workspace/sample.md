@@ -53,10 +53,10 @@ Keyboard/input style examples: <kbd>Ctrl</kbd> + <kbd>K</kbd> and escaped markdo
 
 ## Tables and Alignment
 
-| Feature | Status | Notes |
-|:--|:--:|--:|
-| Mermaid | Enabled | Local bundle |
-| KaTeX | Enabled | Local bundle |
+| Feature   | Status  |            Notes |
+| :-------- | :-----: | ---------------: |
+| Mermaid   | Enabled |     Local bundle |
+| KaTeX     | Enabled |     Local bundle |
 | Sanitizer | Enabled | Strict allowlist |
 
 ## Definition List

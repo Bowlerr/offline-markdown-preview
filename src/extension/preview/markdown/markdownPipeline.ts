@@ -248,7 +248,8 @@ function createMarkdownIt(options: MarkdownRenderOptions): MarkdownIt {
 
   md.use(deflist);
   md.use(footnote);
-  md.use(taskLists, { enabled: true, label: true, labelAfter: true });
+  // Preview should be read-only; task checkboxes stay non-interactive unless wired back to document edits.
+  md.use(taskLists, { enabled: false, label: true, labelAfter: true });
   md.use(anchor, {
     slugify
   });

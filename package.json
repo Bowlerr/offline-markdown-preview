@@ -137,6 +137,11 @@
           "maximum": 100,
           "description": "Maximum image size loaded into preview (megabytes)."
         },
+        "offlineMarkdownViewer.preview.autoOpen": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically open preview to the side when a Markdown editor becomes active."
+        },
         "offlineMarkdownViewer.export.embedImages": {
           "type": "boolean",
           "default": false,
