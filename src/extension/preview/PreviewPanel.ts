@@ -429,6 +429,68 @@ export class PreviewController implements vscode.Disposable {
     editor.revealRange(new vscode.Range(pos, pos), vscode.TextEditorRevealType.InCenter);
   }
 
+  async showRemoteImageCacheUsage(): Promise<void> {
+    const usage = await this.collectRemoteImageCacheUsage();
+    if (usage.totalFiles === 0) {
+      void vscode.window.showInformationMessage('Remote image cache is empty.');
+      return;
+    }
+
+    const locationSummary = usage.locations
+      .filter((location) => location.exists && location.files > 0)
+      .map((location) => `${formatBytes(location.bytes)} in ${location.files} file(s) at ${location.label}`)
+      .join(' | ');
+
+    void vscode.window.showInformationMessage(
+      `Remote image cache: ${formatBytes(usage.totalBytes)} across ${usage.totalFiles} file(s). ${locationSummary}`
+    );
+  }
+
+  async clearRemoteImageCache(): Promise<void> {
+    const usage = await this.collectRemoteImageCacheUsage();
+    if (usage.totalFiles === 0) {
+      void vscode.window.showInformationMessage('Remote image cache is already empty.');
+      return;
+    }
+
+    const answer = await vscode.window.showWarningMessage(
+      `Clear remote image cache (${formatBytes(usage.totalBytes)} across ${usage.totalFiles} file(s))?`,
+      { modal: true },
+      'Clear Cache'
+    );
+    if (answer !== 'Clear Cache') {
+      return;
+    }
+
+    let deletedLocations = 0;
+    for (const location of usage.locations) {
+      if (!location.exists) continue;
+      try {
+        await vscode.workspace.fs.delete(location.uri, { recursive: true, useTrash: false });
+        deletedLocations += 1;
+      } catch {
+        // Best-effort; keep clearing other locations.
+      }
+    }
+
+    this.remoteImageOverrides.clear();
+    if (this.panel && this.currentEditor?.document.languageId === 'markdown') {
+      await this.renderNow();
+    }
+
+    const after = await this.collectRemoteImageCacheUsage();
+    const removedBytes = Math.max(0, usage.totalBytes - after.totalBytes);
+    const removedFiles = Math.max(0, usage.totalFiles - after.totalFiles);
+    const suffix =
+      after.totalFiles > 0
+        ? ` ${after.totalFiles} file(s) (${formatBytes(after.totalBytes)}) remain.`
+        : '';
+
+    void vscode.window.showInformationMessage(
+      `Cleared remote image cache in ${deletedLocations} location(s): removed ${removedFiles} file(s), freed ${formatBytes(removedBytes)}.${suffix}`
+    );
+  }
+
   getOutlineProvider(): MarkdownOutlineProvider {
     const provider = new MarkdownOutlineProvider();
     this.disposables.push(this.onOutlineChanged((toc) => provider.setToc(toc)), provider);
@@ -918,6 +980,100 @@ export class PreviewController implements vscode.Disposable {
     return vscode.Uri.joinPath(this.context.globalStorageUri, 'remote-images');
   }
 
+  private getRemoteImageCacheLocations(): Array<{ uri: vscode.Uri; label: string }> {
+    const locations: Array<{ uri: vscode.Uri; label: string }> = [];
+    const seen = new Set<string>();
+    const add = (uri: vscode.Uri, label: string) => {
+      const key = uri.toString();
+      if (seen.has(key)) return;
+      seen.add(key);
+      locations.push({ uri, label });
+    };
+
+    for (const folder of vscode.workspace.workspaceFolders ?? []) {
+      add(
+        vscode.Uri.joinPath(folder.uri, '.offline-markdown-preview', 'remote-images'),
+        `workspace:${folder.name}`
+      );
+    }
+    add(vscode.Uri.joinPath(this.context.globalStorageUri, 'remote-images'), 'global-storage');
+
+    return locations;
+  }
+
+  private async collectRemoteImageCacheUsage(): Promise<{
+    totalBytes: number;
+    totalFiles: number;
+    locations: Array<{ uri: vscode.Uri; label: string; exists: boolean; bytes: number; files: number }>;
+  }> {
+    const locations = this.getRemoteImageCacheLocations();
+    const usageLocations: Array<{ uri: vscode.Uri; label: string; exists: boolean; bytes: number; files: number }> = [];
+    let totalBytes = 0;
+    let totalFiles = 0;
+
+    for (const location of locations) {
+      const stats = await this.measureDirectoryUsage(location.uri);
+      usageLocations.push({ ...location, ...stats });
+      totalBytes += stats.bytes;
+      totalFiles += stats.files;
+    }
+
+    return { totalBytes, totalFiles, locations: usageLocations };
+  }
+
+  private async measureDirectoryUsage(dir: vscode.Uri): Promise<{ exists: boolean; bytes: number; files: number }> {
+    try {
+      const stat = await vscode.workspace.fs.stat(dir);
+      if (!(stat.type & vscode.FileType.Directory)) {
+        return { exists: true, bytes: 0, files: 0 };
+      }
+    } catch (error) {
+      if (isFileNotFoundError(error)) {
+        return { exists: false, bytes: 0, files: 0 };
+      }
+      throw error;
+    }
+
+    let bytes = 0;
+    let files = 0;
+    const queue: vscode.Uri[] = [dir];
+
+    while (queue.length > 0) {
+      const nextDir = queue.shift();
+      if (!nextDir) break;
+      let entries: [string, vscode.FileType][];
+      try {
+        entries = await vscode.workspace.fs.readDirectory(nextDir);
+      } catch {
+        continue;
+      }
+
+      for (const [name, type] of entries) {
+        const child = vscode.Uri.joinPath(nextDir, name);
+        if (type & vscode.FileType.Directory) {
+          queue.push(child);
+          continue;
+        }
+        if (!(type & (vscode.FileType.File | vscode.FileType.SymbolicLink))) {
+          continue;
+        }
+        try {
+          const childStat = await vscode.workspace.fs.stat(child);
+          if (childStat.type & vscode.FileType.Directory) {
+            queue.push(child);
+          } else {
+            bytes += childStat.size;
+            files += 1;
+          }
+        } catch {
+          // Ignore files that disappear while measuring.
+        }
+      }
+    }
+
+    return { exists: true, bytes, files };
+  }
+
   private async embedLocalImages(html: string, maxImageMB: number): Promise<string> {
     const matches = [...html.matchAll(/<img[^>]*data-local-src="([^"]+)"[^>]*src="([^"]*)"[^>]*>/g)];
     let next = html;
@@ -1078,6 +1234,30 @@ function getErrorMessage(error: unknown): string {
   }
   const text = String(error ?? '').trim();
   return text || 'Unknown error';
+}
+
+function isFileNotFoundError(error: unknown): boolean {
+  const code = typeof error === 'object' && error ? (error as { code?: string }).code : undefined;
+  if (code && (code === 'FileNotFound' || code === 'ENOENT')) {
+    return true;
+  }
+  const message = error instanceof Error ? error.message : String(error ?? '');
+  return /file not found|no such file or directory|enoent/i.test(message);
+}
+
+function formatBytes(bytes: number): string {
+  if (!Number.isFinite(bytes) || bytes <= 0) {
+    return '0 B';
+  }
+  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+  let value = bytes;
+  let unitIndex = 0;
+  while (value >= 1024 && unitIndex < units.length - 1) {
+    value /= 1024;
+    unitIndex += 1;
+  }
+  const rounded = value >= 10 || unitIndex === 0 ? value.toFixed(0) : value.toFixed(1);
+  return `${rounded} ${units[unitIndex]}`;
 }
 
 function getHeadlessBrowserCandidates(): string[] {

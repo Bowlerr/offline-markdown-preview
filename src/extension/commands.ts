@@ -12,6 +12,8 @@ export function registerCommands(
     ['offlineMarkdownViewer.openPreviewToSide', () => controller.openPreview(true)],
     ['offlineMarkdownViewer.exportHtml', () => controller.exportHtml()],
     ['offlineMarkdownViewer.exportPdf', () => controller.exportPdf()],
+    ['offlineMarkdownViewer.showRemoteImageCacheUsage', () => controller.showRemoteImageCacheUsage()],
+    ['offlineMarkdownViewer.clearRemoteImageCache', () => controller.clearRemoteImageCache()],
     ['offlineMarkdownViewer.toggleScrollSync', () => controller.toggleScrollSync()],
     ['offlineMarkdownViewer.copyHeadingLink', (item?: TocItem) => controller.copyHeadingLink(item)],
     ['offlineMarkdownViewer.revealHeading', (item: TocItem) => controller.revealHeadingItem(item)],

@@ -53,6 +53,8 @@
     "onCommand:offlineMarkdownViewer.openPreviewToSide",
     "onCommand:offlineMarkdownViewer.exportHtml",
     "onCommand:offlineMarkdownViewer.exportPdf",
+    "onCommand:offlineMarkdownViewer.showRemoteImageCacheUsage",
+    "onCommand:offlineMarkdownViewer.clearRemoteImageCache",
     "onLanguage:markdown"
   ],
   "main": "./dist/extension/activate.js",
@@ -76,6 +78,16 @@
       {
         "command": "offlineMarkdownViewer.exportPdf",
         "title": "Export PDF",
+        "category": "Offline Markdown Preview"
+      },
+      {
+        "command": "offlineMarkdownViewer.showRemoteImageCacheUsage",
+        "title": "Show Remote Image Cache Usage",
+        "category": "Offline Markdown Preview"
+      },
+      {
+        "command": "offlineMarkdownViewer.clearRemoteImageCache",
+        "title": "Clear Remote Image Cache",
         "category": "Offline Markdown Preview"
       },
       {
