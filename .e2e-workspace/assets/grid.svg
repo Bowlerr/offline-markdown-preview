@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="480" height="240" viewBox="0 0 480 240">
+  <defs>
+    <pattern id="grid" width="20" height="20" patternUnits="userSpaceOnUse">
+      <path d="M 20 0 L 0 0 0 20" fill="none" stroke="#9ca3af" stroke-width="1"/>
+    </pattern>
+  </defs>
+  <rect width="480" height="240" fill="url(#grid)"/>
+  <text x="24" y="48" fill="#111827" font-size="24" font-family="Arial, sans-serif">Local SVG Asset</text>
+</svg>
