@@ -26,9 +26,15 @@ if (!existsSync(fallbackSamplePath)) {
 const executablePath = await downloadAndUnzipVSCode('stable');
 const playwrightCliPath = join(dirname(require.resolve('playwright')), 'cli.js');
 const versionArgs = process.platform === 'linux' ? ['--no-sandbox', '--version'] : ['--version'];
+const isHeadlessLinux = process.platform === 'linux' && !process.env.DISPLAY && !process.env.WAYLAND_DISPLAY;
 
-// Validate the downloaded VS Code binary directly. CLI path resolution is less portable across hosts.
-await run(executablePath, versionArgs);
+// Validate the downloaded VS Code binary directly when a display server is available.
+if (isHeadlessLinux) {
+  console.log('Skipping VS Code --version smoke check on headless Linux (no DISPLAY/WAYLAND_DISPLAY).');
+} else {
+  await run(executablePath, versionArgs);
+}
+
 await run(process.execPath, [playwrightCliPath, 'test', 'test/e2e', '--workers=1'], {
   env: {
     ...process.env,
