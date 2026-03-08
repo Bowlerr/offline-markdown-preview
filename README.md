@@ -3,12 +3,13 @@
 ![Offline Markdown Preview banner](images/banner.png)
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![VS Code Marketplace Version](https://img.shields.io/visual-studio-marketplace/v/bowlerr.offline-markdown-preview?label=VS%20Code%20Marketplace)](https://marketplace.visualstudio.com/items?itemName=bowlerr.offline-markdown-preview)
+[![VS Code Marketplace Installs](https://img.shields.io/visual-studio-marketplace/i/bowlerr.offline-markdown-preview?label=Installs)](https://marketplace.visualstudio.com/items?itemName=bowlerr.offline-markdown-preview)
+[![VS Code Marketplace Rating](https://img.shields.io/visual-studio-marketplace/r/bowlerr.offline-markdown-preview?label=Rating)](https://marketplace.visualstudio.com/items?itemName=bowlerr.offline-markdown-preview)
 
 Offline Markdown preview for VS Code with Mermaid diagrams, KaTeX math, secure local rendering, export, scroll sync, and outline navigation.
 
 **Offline + Secure**: runs locally inside VS Code and the extension does not send your Markdown contents anywhere (no cloud, no telemetry).
-
-> Marketplace badges/screenshots are still being finalized.
 
 ## GIF Demos
 
