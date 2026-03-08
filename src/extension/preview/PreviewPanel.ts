@@ -36,6 +36,7 @@ interface RuntimeSettings {
   scrollSync: boolean;
   sanitizeHtml: boolean;
   autoOpenPreview: boolean;
+  allowRemoteImages: boolean;
   showFrontmatter: boolean;
   externalConfirm: boolean;
   maxImageMB: number;
@@ -51,6 +52,7 @@ function getSettings(resource?: vscode.Uri): RuntimeSettings {
     scrollSync: cfg.get<boolean>('scrollSync', true),
     sanitizeHtml: cfg.get<boolean>('sanitizeHtml', true),
     autoOpenPreview: cfg.get<boolean>('preview.autoOpen', true),
+    allowRemoteImages: cfg.get<boolean>('preview.allowRemoteImages', false),
     showFrontmatter: cfg.get<boolean>('preview.showFrontmatter', false),
     externalConfirm: cfg.get<boolean>('externalLinks.confirm', true),
     maxImageMB: cfg.get<number>('preview.maxImageMB', 8),
@@ -107,6 +109,7 @@ export class PreviewController implements vscode.Disposable {
   private relocatingEditor = false;
   private preferredMarkdownColumn: vscode.ViewColumn | undefined;
   private lastPreviewColumn: vscode.ViewColumn | undefined;
+  private webviewAllowsRemoteImages: boolean | undefined;
   private htmlExportSnapshotReqId = 0;
   private pendingHtmlExportSnapshot:
     | {
@@ -259,12 +262,15 @@ export class PreviewController implements vscode.Disposable {
       }
     );
 
-    this.panel.webview.html = await this.buildWebviewHtml(this.panel.webview, editor.document.uri);
+    const settings = getSettings(editor.document.uri);
+    this.panel.webview.html = await this.buildWebviewHtml(this.panel.webview, editor.document.uri, settings);
+    this.webviewAllowsRemoteImages = settings.allowRemoteImages;
     this.disposables.push(
       this.panel,
       this.panel.onDidDispose(() => {
         this.lastPreviewColumn = this.panel?.viewColumn ?? this.lastPreviewColumn;
         this.panel = undefined;
+        this.webviewAllowsRemoteImages = undefined;
       }),
       this.panel.onDidChangeViewState((event) => {
         this.lastPreviewColumn = event.webviewPanel.viewColumn ?? this.lastPreviewColumn;
@@ -500,6 +506,9 @@ export class PreviewController implements vscode.Disposable {
     if (!panel || !editor || editor.document.languageId !== 'markdown') return;
 
     const settings = getSettings(editor.document.uri);
+    if (await this.refreshWebviewShellIfNeeded(editor.document.uri, settings)) {
+      return;
+    }
     if (!settings.sanitizeHtml) {
       if (!this.unsafeHtmlAcknowledged) {
         if (!(await confirmSanitizeDisabled(editor.document.uri))) {
@@ -641,12 +650,18 @@ export class PreviewController implements vscode.Disposable {
     }
   }
 
-  private async buildWebviewHtml(webview: vscode.Webview, documentUri: vscode.Uri): Promise<string> {
+  private async buildWebviewHtml(
+    webview: vscode.Webview,
+    documentUri: vscode.Uri,
+    settings: RuntimeSettings
+  ): Promise<string> {
     const nonce = createNonce();
     const scriptUri = webview.asWebviewUri(vscode.Uri.joinPath(this.context.extensionUri, 'dist', 'webview-ui', 'index.js'));
     const cssUri = webview.asWebviewUri(vscode.Uri.joinPath(this.context.extensionUri, 'dist', 'webview-ui', 'index.css'));
-    // Strict CSP: no remote connections, nonce-only scripts, local-resource-only images/styles/fonts.
-    const csp = buildWebviewCsp(webview.cspSource, nonce);
+    // Strict CSP with optional remote image sources; script/style/connect remain locked down.
+    const csp = buildWebviewCsp(webview.cspSource, nonce, {
+      allowRemoteImages: settings.allowRemoteImages
+    });
     const customCss = await getWorkspaceCustomCss(documentUri);
 
     const customCssTag = customCss ? inlineCssTag(customCss, nonce) : '';
@@ -669,6 +684,19 @@ export class PreviewController implements vscode.Disposable {
   <script nonce="${nonce}" src="${scriptUri}"></script>
 </body>
 </html>`;
+  }
+
+  private async refreshWebviewShellIfNeeded(
+    documentUri: vscode.Uri,
+    settings: RuntimeSettings
+  ): Promise<boolean> {
+    if (!this.panel) return false;
+    if (this.webviewAllowsRemoteImages === settings.allowRemoteImages) {
+      return false;
+    }
+    this.panel.webview.html = await this.buildWebviewHtml(this.panel.webview, documentUri, settings);
+    this.webviewAllowsRemoteImages = settings.allowRemoteImages;
+    return true;
   }
 
   private postMessage(message: ExtensionToWebviewMessage): void {

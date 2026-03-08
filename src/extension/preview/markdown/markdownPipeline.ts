@@ -319,7 +319,7 @@ function createMarkdownIt(options: MarkdownRenderOptions): MarkdownIt {
           return imageRule ? imageRule(tokens, idx, opts, env, self) : self.renderToken(tokens, idx, opts);
         }
       } catch {
-        // If stat fails we leave the original src untouched; webview CSP still blocks remote URLs.
+        // If stat fails we leave the original src untouched; CSP/runtime policy governs remote sources.
       }
       token.attrSet('data-local-src', resolved.toString());
       token.attrSet('src', options.webview.asWebviewUri(resolved).toString());

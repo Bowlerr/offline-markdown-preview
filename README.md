@@ -1,5 +1,7 @@
 # Offline Markdown Preview (Beta)
 
+![Offline Markdown Preview banner](images/banner.png)
+
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 Offline Markdown preview for VS Code with Mermaid diagrams, KaTeX math, secure local rendering, export, scroll sync, and outline navigation.
@@ -62,6 +64,7 @@ Tip: use the editor title action to open preview to the side while editing.
 - **No network required** for render, preview, or export.
 - **No telemetry** and no document-content upload.
 - **Remote web requests are blocked** in the webview runtime (`fetch`, `XMLHttpRequest`, `WebSocket`, `EventSource`) for `http(s)` targets.
+- **Remote images are blocked by default**; you can opt in via `offlineMarkdownViewer.preview.allowRemoteImages`.
 - **Strict CSP** includes `connect-src 'none'`.
 - **Sanitization is on by default** (`offlineMarkdownViewer.sanitizeHtml = true`).
 - **Export writes files only on explicit user action** (HTML/PDF commands).
@@ -75,6 +78,7 @@ These VS Code settings control rendering, safety, and performance:
 - `offlineMarkdownViewer.scrollSync` (default: `true`): synchronize editor and preview scrolling.
 - `offlineMarkdownViewer.sanitizeHtml` (default: `true`): sanitize rendered HTML in the webview; turning this off is unsafe.
 - `offlineMarkdownViewer.externalLinks.confirm` (default: `true`): confirm before opening external links.
+- `offlineMarkdownViewer.preview.allowRemoteImages` (default: `false`): allow loading remote `http(s)` images in preview.
 - `offlineMarkdownViewer.preview.maxImageMB` (default: `8`): maximum local image size loaded into preview.
 - `offlineMarkdownViewer.export.embedImages` (default: `false`): embed local images as data URIs for HTML export (privacy warning shown).
 - `offlineMarkdownViewer.performance.debounceMs` (default: `120`): debounce delay for live preview updates.

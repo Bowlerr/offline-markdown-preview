@@ -17,6 +17,7 @@
     "url": "https://github.com/Bowlerr/offline-markdown-preview/issues"
   },
   "homepage": "https://github.com/Bowlerr/offline-markdown-preview#readme",
+  "icon": "images/icon.png",
   "galleryBanner": {
     "color": "#1e1e1e",
     "theme": "dark"
@@ -141,6 +142,11 @@
           "type": "boolean",
           "default": true,
           "description": "Automatically open preview to the side when a Markdown editor becomes active."
+        },
+        "offlineMarkdownViewer.preview.allowRemoteImages": {
+          "type": "boolean",
+          "default": false,
+          "description": "Allow loading remote http(s) images in preview. Disabled by default for offline/privacy safety."
         },
         "offlineMarkdownViewer.export.embedImages": {
           "type": "boolean",

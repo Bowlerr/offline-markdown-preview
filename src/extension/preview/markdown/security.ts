@@ -7,10 +7,17 @@ export function createNonce(): string {
   return randomBytes(16).toString('hex');
 }
 
-export function buildWebviewCsp(cspSource: string, nonce: string): string {
+export function buildWebviewCsp(
+  cspSource: string,
+  nonce: string,
+  options: { allowRemoteImages?: boolean } = {}
+): string {
+  const imgSources = options.allowRemoteImages
+    ? `${cspSource} data: blob: https: http:`
+    : `${cspSource} data: blob:`;
   return [
     "default-src 'none'",
-    `img-src ${cspSource} data: blob:`,
+    `img-src ${imgSources}`,
     `style-src ${cspSource} 'nonce-${nonce}'`,
     `font-src ${cspSource} data:`,
     `script-src 'nonce-${nonce}'`,
