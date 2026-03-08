@@ -25,6 +25,7 @@ describe('markdownPipeline', () => {
       sourceUri,
       webview: webview as any,
       allowHtml: true,
+      allowRemoteImages: false,
       maxImageMB: 8
     });
 
@@ -82,6 +83,7 @@ describe('markdownPipeline', () => {
       sourceUri,
       webview: webview as any,
       allowHtml: true,
+      allowRemoteImages: false,
       maxImageMB: 8
     });
 
@@ -102,5 +104,36 @@ describe('markdownPipeline', () => {
     expect(encoded.some((expr) => expr.includes('\\begin{cases}') && expr.includes('\\ln(x), & x \\ge \\pi'))).toBe(
       true
     );
+  });
+
+  it('marks remote images for download when remote images are disabled', () => {
+    const sourceUri = Uri.file('/workspace/docs/remote.md');
+    const webview = {
+      asWebviewUri(uri: { toString(): string }) {
+        return { toString: () => `vscode-webview://${uri.toString()}` };
+      }
+    };
+
+    const input = '![remote](https://example.com/image.png)';
+
+    const blocked = renderMarkdown(input, {
+      sourceUri,
+      webview: webview as any,
+      allowHtml: true,
+      allowRemoteImages: false,
+      maxImageMB: 8
+    });
+    expect(blocked.html).toContain('data-remote-src="https://example.com/image.png"');
+    expect(blocked.html).toContain('data-image-blocked="remote-disabled"');
+
+    const allowed = renderMarkdown(input, {
+      sourceUri,
+      webview: webview as any,
+      allowHtml: true,
+      allowRemoteImages: true,
+      maxImageMB: 8
+    });
+    expect(allowed.html).not.toContain('data-remote-src=');
+    expect(allowed.html).toContain('src="https://example.com/image.png"');
   });
 });

@@ -18,6 +18,8 @@ export interface MarkdownRenderOptions {
   sourceUri: vscode.Uri;
   webview: vscode.Webview;
   allowHtml: boolean;
+  allowRemoteImages: boolean;
+  remoteImageOverrides?: ReadonlyMap<string, vscode.Uri>;
   maxImageMB: number;
 }
 
@@ -305,8 +307,12 @@ function createMarkdownIt(options: MarkdownRenderOptions): MarkdownIt {
   md.renderer.rules.image = (tokens, idx, opts, env, self) => {
     const token = tokens[idx];
     const src = token.attrGet('src') ?? '';
+    const override = options.remoteImageOverrides?.get(src);
     const resolved = resolveImageUri(options.sourceUri, src);
-    if (resolved) {
+    if (override) {
+      token.attrSet('data-local-src', override.toString());
+      token.attrSet('src', options.webview.asWebviewUri(override).toString());
+    } else if (resolved) {
       try {
         const bytes = statSync(resolved.fsPath).size;
         if (bytes > options.maxImageMB * 1024 * 1024) {
@@ -323,6 +329,10 @@ function createMarkdownIt(options: MarkdownRenderOptions): MarkdownIt {
       }
       token.attrSet('data-local-src', resolved.toString());
       token.attrSet('src', options.webview.asWebviewUri(resolved).toString());
+    } else if (/^https?:\/\//i.test(src) && !options.allowRemoteImages) {
+      token.attrSet('data-remote-src', src);
+      token.attrSet('data-image-blocked', 'remote-disabled');
+      token.attrSet('src', '');
     }
     token.attrSet('loading', 'lazy');
     token.attrSet('decoding', 'async');

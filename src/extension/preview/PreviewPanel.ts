@@ -2,6 +2,7 @@ import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { spawn } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import * as vscode from 'vscode';
 
 import type {
@@ -110,6 +111,7 @@ export class PreviewController implements vscode.Disposable {
   private preferredMarkdownColumn: vscode.ViewColumn | undefined;
   private lastPreviewColumn: vscode.ViewColumn | undefined;
   private webviewAllowsRemoteImages: boolean | undefined;
+  private readonly remoteImageOverrides = new Map<string, vscode.Uri>();
   private htmlExportSnapshotReqId = 0;
   private pendingHtmlExportSnapshot:
     | {
@@ -257,6 +259,7 @@ export class PreviewController implements vscode.Disposable {
         // Restrict file access to extension-bundled assets plus current workspace roots only.
         localResourceRoots: [
           vscode.Uri.joinPath(this.context.extensionUri, 'dist', 'webview-ui'),
+          this.context.globalStorageUri,
           ...(vscode.workspace.workspaceFolders?.map((f) => f.uri) ?? [])
         ]
       }
@@ -271,6 +274,7 @@ export class PreviewController implements vscode.Disposable {
         this.lastPreviewColumn = this.panel?.viewColumn ?? this.lastPreviewColumn;
         this.panel = undefined;
         this.webviewAllowsRemoteImages = undefined;
+        this.remoteImageOverrides.clear();
       }),
       this.panel.onDidChangeViewState((event) => {
         this.lastPreviewColumn = event.webviewPanel.viewColumn ?? this.lastPreviewColumn;
@@ -523,6 +527,8 @@ export class PreviewController implements vscode.Disposable {
       sourceUri: editor.document.uri,
       webview: panel.webview,
       allowHtml: true,
+      allowRemoteImages: settings.allowRemoteImages,
+      remoteImageOverrides: this.remoteImageOverrides,
       maxImageMB: settings.maxImageMB
     });
 
@@ -619,6 +625,10 @@ export class PreviewController implements vscode.Disposable {
       }
       case 'openImage': {
         await this.openLocalImage(message.src);
+        break;
+      }
+      case 'downloadRemoteImage': {
+        await this.downloadRemoteImageForPreview(message.src);
         break;
       }
       case 'requestExport': {
@@ -822,6 +832,92 @@ export class PreviewController implements vscode.Disposable {
     await vscode.commands.executeCommand('vscode.open', uri);
   }
 
+  private async downloadRemoteImageForPreview(src: string): Promise<void> {
+    const editor = this.currentEditor;
+    if (!editor) return;
+
+    const settings = getSettings(editor.document.uri);
+    if (settings.allowRemoteImages) {
+      this.postMessage({
+        type: 'notify',
+        level: 'info',
+        message: 'Remote images are already allowed by settings.'
+      });
+      return;
+    }
+
+    try {
+      const downloaded = await this.downloadRemoteImageToCache(src, editor.document.uri, settings.maxImageMB);
+      this.remoteImageOverrides.set(src, downloaded);
+      this.postMessage({
+        type: 'notify',
+        level: 'info',
+        message: `Downloaded remote image for preview: ${path.basename(downloaded.fsPath)}`
+      });
+      await this.renderNow();
+    } catch (error) {
+      this.postMessage({
+        type: 'notify',
+        level: 'warning',
+        message: `Could not download remote image: ${getErrorMessage(error)}`
+      });
+    }
+  }
+
+  private async downloadRemoteImageToCache(
+    src: string,
+    documentUri: vscode.Uri,
+    maxImageMB: number
+  ): Promise<vscode.Uri> {
+    let parsed: URL;
+    try {
+      parsed = new URL(src);
+    } catch {
+      throw new Error('Invalid URL');
+    }
+
+    if (!/^https?:$/i.test(parsed.protocol)) {
+      throw new Error('Only http(s) URLs are supported');
+    }
+
+    const response = await fetch(parsed.toString(), { redirect: 'follow' });
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status} ${response.statusText}`.trim());
+    }
+
+    const contentType = (response.headers.get('content-type') ?? '').toLowerCase();
+    if (!contentType.startsWith('image/')) {
+      throw new Error(`URL did not return an image (${contentType || 'unknown content-type'})`);
+    }
+
+    const data = new Uint8Array(await response.arrayBuffer());
+    if (data.byteLength === 0) {
+      throw new Error('Downloaded image is empty');
+    }
+
+    const maxBytes = maxImageMB * 1024 * 1024;
+    if (data.byteLength > maxBytes) {
+      throw new Error(`Image exceeds preview.maxImageMB (${maxImageMB} MB)`);
+    }
+
+    const targetDir = await this.resolveRemoteImageCacheDir(documentUri);
+    await vscode.workspace.fs.createDirectory(targetDir);
+
+    const extension = inferRemoteImageExtension(contentType, parsed.pathname);
+    const hash = createHash('sha256').update(src).digest('hex').slice(0, 24);
+    const target = vscode.Uri.joinPath(targetDir, `${hash}${extension}`);
+    await vscode.workspace.fs.writeFile(target, data);
+    return target;
+  }
+
+  private async resolveRemoteImageCacheDir(documentUri: vscode.Uri): Promise<vscode.Uri> {
+    const folder = vscode.workspace.getWorkspaceFolder(documentUri);
+    if (folder) {
+      return vscode.Uri.joinPath(folder.uri, '.offline-markdown-preview', 'remote-images');
+    }
+    return vscode.Uri.joinPath(this.context.globalStorageUri, 'remote-images');
+  }
+
   private async embedLocalImages(html: string, maxImageMB: number): Promise<string> {
     const matches = [...html.matchAll(/<img[^>]*data-local-src="([^"]+)"[^>]*src="([^"]*)"[^>]*>/g)];
     let next = html;
@@ -947,6 +1043,41 @@ function escapeHtml(value: string): string {
 function isDisposedWebviewError(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String(error ?? '');
   return /webview is disposed/i.test(message) || /disposed/i.test(message);
+}
+
+function inferRemoteImageExtension(contentType: string, urlPathname: string): string {
+  const typeMap: Record<string, string> = {
+    'image/png': '.png',
+    'image/jpeg': '.jpg',
+    'image/jpg': '.jpg',
+    'image/gif': '.gif',
+    'image/webp': '.webp',
+    'image/svg+xml': '.svg',
+    'image/bmp': '.bmp',
+    'image/x-icon': '.ico',
+    'image/vnd.microsoft.icon': '.ico',
+    'image/avif': '.avif'
+  };
+
+  const mime = contentType.split(';')[0]?.trim();
+  if (mime && typeMap[mime]) {
+    return typeMap[mime];
+  }
+
+  const ext = path.extname(urlPathname || '').toLowerCase();
+  if (/^\.[a-z0-9]{1,6}$/i.test(ext)) {
+    return ext;
+  }
+
+  return '.img';
+}
+
+function getErrorMessage(error: unknown): string {
+  if (error instanceof Error && error.message) {
+    return error.message;
+  }
+  const text = String(error ?? '').trim();
+  return text || 'Unknown error';
 }
 
 function getHeadlessBrowserCandidates(): string[] {

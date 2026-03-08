@@ -20,6 +20,7 @@ test.describe('preview features (VS Code)', () => {
     const linkedDoc = await readWorkspaceMarkdown(workspace, 'linked-doc.md');
     const linkedSubdoc = await readWorkspaceMarkdown(workspace, 'sub/linked-subdoc.md');
     const mermaidEdgeCases = await readWorkspaceMarkdown(workspace, 'mermaid-edge-cases.md');
+    const remoteImages = await readWorkspaceMarkdown(workspace, 'remote-images.md');
 
     await access(join(workspace, 'assets/banner.svg'));
     await access(join(workspace, 'assets/grid.svg'));
@@ -44,6 +45,19 @@ test.describe('preview features (VS Code)', () => {
     expect(linkedSubdoc).toContain('../sample.md#mermaid-diagrams');
     expect(mermaidEdgeCases).toContain('# Mermaid Edge Cases Fixture');
     expect(mermaidEdgeCases).toContain('./sample.md#mermaid-diagrams');
+    expect(remoteImages).toContain('# Remote Images Fixture');
+    expect(remoteImages).toContain('offlineMarkdownViewer.preview.allowRemoteImages = false');
+    expect(remoteImages).toContain('Download Image');
+
+    const remoteImageLinks = extractMarkdownImageLinks(remoteImages).filter((link) => isHttpUrl(link));
+    expect(remoteImageLinks).toEqual(
+      expect.arrayContaining([
+        'https://picsum.photos/seed/omv-remote-image/640/360',
+        'https://picsum.photos/seed/omv-query-image/800/450?grayscale=1'
+      ])
+    );
+    expect(remoteImageLinks.length).toBeGreaterThanOrEqual(3);
+    expect(countMatches(remoteImages, /https:\/\/picsum\.photos\/seed\/omv-remote-image\/640\/360/g)).toBe(2);
 
     const mermaidFenceCount = countMatches(mermaidEdgeCases, /```mermaid/g);
     expect(mermaidFenceCount).toBeGreaterThanOrEqual(18);
@@ -145,6 +159,20 @@ function extractHeadings(markdown: string): Array<{ level: number; text: string 
     headings.push({ level: match[1].length, text: match[2] });
   }
   return headings;
+}
+
+function extractMarkdownImageLinks(markdown: string): string[] {
+  const links: string[] = [];
+  const regex = /!\[[^\]]*]\(([^)]+)\)/g;
+  for (const match of markdown.matchAll(regex)) {
+    const href = match[1]?.trim();
+    if (href) links.push(href);
+  }
+  return links;
+}
+
+function isHttpUrl(value: string): boolean {
+  return /^https?:\/\//i.test(value);
 }
 
 function countMatches(text: string, pattern: RegExp): number {

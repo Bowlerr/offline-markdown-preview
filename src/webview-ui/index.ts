@@ -90,6 +90,9 @@ const renderer = new PreviewRenderer(article, {
   },
   onOpenImage(src) {
     vscode.postMessage({ type: 'openImage', src });
+  },
+  onDownloadRemoteImage(src) {
+    vscode.postMessage({ type: 'downloadRemoteImage', src });
   }
 });
 

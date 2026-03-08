@@ -16,6 +16,7 @@ export interface RendererBridge {
   onHeadingSelect(id: string): void;
   onCopyHeadingLink(id: string): void;
   onOpenImage(src: string): void;
+  onDownloadRemoteImage(src: string): void;
 }
 
 interface MermaidRecoveryAttempt {
@@ -78,6 +79,8 @@ export class PreviewRenderer {
             'data-math',
             'data-omv-link',
             'data-local-src',
+            'data-remote-src',
+            'data-image-blocked',
             'data-max-mb',
             'data-source-line',
             'data-source-line-end',
@@ -91,7 +94,7 @@ export class PreviewRenderer {
     this.content.innerHTML = String(sanitized);
     applyTableAlignments(this.content, tableAlignments);
     this.decorateHeadings();
-    this.enforceImageConstraints();
+    this.decorateImageActions();
     this.renderBanner(payload.settings.sanitizeHtml);
 
     Prism.highlightAllUnder(this.content);
@@ -149,13 +152,34 @@ export class PreviewRenderer {
     }
   }
 
-  private enforceImageConstraints(): void {
+  private decorateImageActions(): void {
     const imgs = this.content.querySelectorAll<HTMLImageElement>('img[data-local-src]');
     for (const img of imgs) {
       img.addEventListener('click', () => {
         const localSrc = img.getAttribute('data-local-src');
         if (localSrc) this.bridge.onOpenImage(localSrc);
       });
+    }
+
+    const remoteImgs = this.content.querySelectorAll<HTMLImageElement>('img[data-remote-src]');
+    for (const img of remoteImgs) {
+      const src = img.getAttribute('data-remote-src');
+      if (!src) continue;
+      const block = document.createElement('div');
+      block.className = 'omv-remote-image';
+
+      const text = document.createElement('div');
+      text.className = 'omv-remote-image-text';
+      text.textContent = 'Remote image blocked by settings.';
+
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'omv-remote-image-btn';
+      btn.dataset.remoteImageSrc = src;
+      btn.textContent = 'Download Image';
+
+      block.append(text, btn);
+      img.replaceWith(block);
     }
   }
 
@@ -292,6 +316,16 @@ export class PreviewRenderer {
   private handleClick(event: MouseEvent): void {
     const target = event.target as HTMLElement | null;
     if (!target) return;
+
+    const remoteDownload = target.closest<HTMLButtonElement>('button[data-remote-image-src]');
+    if (remoteDownload) {
+      event.preventDefault();
+      const src = remoteDownload.dataset.remoteImageSrc;
+      if (src) {
+        this.bridge.onDownloadRemoteImage(src);
+      }
+      return;
+    }
 
     const heading = target.closest<HTMLElement>('h1,h2,h3,h4,h5,h6');
     if (heading && heading.id && target.tagName !== 'A') {

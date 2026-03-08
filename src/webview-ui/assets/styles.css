@@ -297,6 +297,40 @@ input {
   border-radius: 4px;
 }
 
+.omv-content .omv-remote-image {
+  border: 1px dashed var(--omv-border);
+  border-radius: 6px;
+  padding: 0.45rem 0.55rem;
+  background: color-mix(in srgb, var(--omv-bg) 92%, var(--omv-fg) 8%);
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+  max-width: 100%;
+}
+
+.omv-content .omv-remote-image-text {
+  color: var(--omv-muted);
+  font-size: 12px;
+}
+
+.omv-content .omv-remote-image-btn {
+  border: 1px solid var(--omv-border);
+  background: transparent;
+  color: inherit;
+  border-radius: 6px;
+  padding: 0.25rem 0.5rem;
+  cursor: pointer;
+}
+
+.omv-content .omv-remote-image-btn:hover {
+  background: var(--omv-accent-weak);
+}
+
+.omv-content .omv-remote-image-btn:disabled {
+  opacity: 0.7;
+  cursor: default;
+}
+
 .omv-content pre {
   padding: 0.8rem;
   overflow: auto;

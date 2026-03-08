@@ -110,6 +110,11 @@ export interface OpenImageMessage {
   src: string;
 }
 
+export interface DownloadRemoteImageMessage {
+  type: 'downloadRemoteImage';
+  src: string;
+}
+
 export interface RequestExportMessage {
   type: 'requestExport';
 }
@@ -129,6 +134,7 @@ export type WebviewToExtensionMessage =
   | SearchRequestMessage
   | PdfExportResultMessage
   | OpenImageMessage
+  | DownloadRemoteImageMessage
   | RequestExportMessage
   | HtmlExportSnapshotMessage;
 

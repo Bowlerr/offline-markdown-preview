@@ -28,6 +28,7 @@ const webviewSchema = z.discriminatedUnion('type', [
     error: z.string().optional()
   }),
   z.object({ type: z.literal('openImage'), src: z.string().min(1) }),
+  z.object({ type: z.literal('downloadRemoteImage'), src: z.string().min(1) }),
   z.object({ type: z.literal('requestExport') }),
   z.object({
     type: z.literal('htmlExportSnapshot'),
