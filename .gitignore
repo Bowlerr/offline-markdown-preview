@@ -7,9 +7,8 @@ dist/
 # Test artifacts
 test-results/
 .vscode-test/
-.e2e-extensions/
 .e2e-user-data/
-.e2e-workspace/
+.e2e-extensions/
 
 # Coverage / caches
 coverage/

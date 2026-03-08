@@ -25,9 +25,10 @@ if (!existsSync(fallbackSamplePath)) {
 
 const executablePath = await downloadAndUnzipVSCode('stable');
 const playwrightCliPath = join(dirname(require.resolve('playwright')), 'cli.js');
+const versionArgs = process.platform === 'linux' ? ['--no-sandbox', '--version'] : ['--version'];
 
 // Validate the downloaded VS Code binary directly. CLI path resolution is less portable across hosts.
-await run(executablePath, ['--version']);
+await run(executablePath, versionArgs);
 await run(process.execPath, [playwrightCliPath, 'test', 'test/e2e', '--workers=1'], {
   env: {
     ...process.env,
