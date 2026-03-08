@@ -35,4 +35,4 @@ Be respectful and inclusive. We follow the [Contributor Covenant Code of Conduct
 
 ## Questions?
 
-Open an issue (`TODO: add repository URL`) and include context on what you are trying to do.
+Open an issue (`https://github.com/Bowlerr/offline-markdown-preview/issues/new`) and include context on what you are trying to do.

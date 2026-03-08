@@ -3,7 +3,7 @@
   "displayName": "Offline Markdown Preview",
   "description": "Offline Markdown preview for VS Code with Mermaid diagrams, KaTeX math, secure local rendering, export, scroll sync, and outline navigation.",
   "version": "0.1.0",
-  "publisher": "local-dev",
+  "publisher": "bowlerr",
   "author": {
     "name": "Bowlerr",
     "email": "cawbsprogramming@gmail.com"
@@ -40,7 +40,8 @@
     "vscode-extension"
   ],
   "engines": {
-    "vscode": "^1.90.0"
+    "vscode": "^1.90.0",
+    "node": ">=20.19.0 <21 || >=22.13.0 <23 || >=24"
   },
   "categories": [
     "Visualization",
@@ -187,15 +188,20 @@
   },
   "scripts": {
     "build": "node esbuild.config.mjs",
+    "vscode:prepublish": "npm run build",
     "watch": "node esbuild.config.mjs --watch",
     "lint": "eslint src test --ext .ts",
     "format": "prettier --write .",
     "test": "npm run test:unit",
     "test:unit": "vitest run --config vitest.config.ts",
     "test:e2e": "node ./test/e2e/runVscodeE2E.mjs",
-    "package": "vsce package --no-dependencies"
+    "package": "vsce package --no-dependencies --no-yarn",
+    "release": "vsce publish --no-yarn",
+    "release:openvsx": "npx ovsx publish",
+    "release:all": "npm run release && npm run release:openvsx"
   },
   "dependencies": {
+    "@types/markdown-it": "*",
     "dompurify": "^3.2.6",
     "gray-matter": "^4.0.3",
     "katex": "^0.16.22",
@@ -215,6 +221,7 @@
     "@types/vscode": "^1.90.0",
     "@typescript-eslint/eslint-plugin": "^8.34.0",
     "@typescript-eslint/parser": "^8.34.0",
+    "@vscode/vsce": "^3.0.0",
     "@vscode/test-electron": "^2.5.2",
     "esbuild": "^0.25.5",
     "eslint": "^8.57.0",
@@ -222,8 +229,7 @@
     "eslint-plugin-import": "^2.32.0",
     "prettier": "^3.5.3",
     "typescript": "^5.8.3",
-    "vitest": "^2.1.9",
-    "vsce": "^2.15.0"
+    "vitest": "^2.1.9"
   },
   "packageManager": "yarn@1.22.22+sha512.a6b2f7906b721bba3d67d4aff083df04dad64c399707841b7acf00f6b133b7ac24255f2652fa22ae3534329dc6180534e98d17432037ff6fd140556e2bb3137e"
 }

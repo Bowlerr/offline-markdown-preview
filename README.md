@@ -105,7 +105,7 @@ These VS Code settings control rendering, safety, and performance:
 Remote images downloaded from blocked placeholders are cached locally for offline-safe preview reuse.
 
 - Workspace cache path: `.offline-markdown-preview/remote-images` (inside each workspace folder).
-- Global fallback cache path: VS Code extension global storage (`local-dev.offline-markdown-preview/remote-images`) when no workspace folder is available.
+- Global fallback cache path: VS Code extension global storage (`bowlerr.offline-markdown-preview/remote-images`) when no workspace folder is available.
 - Use **Offline Markdown Preview: Show Remote Image Cache Usage** to inspect total size/count.
 - Use **Offline Markdown Preview: Clear Remote Image Cache** to remove cached remote images.
 
