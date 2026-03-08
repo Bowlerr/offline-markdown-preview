@@ -5,5 +5,5 @@
     </pattern>
   </defs>
   <rect width="480" height="240" fill="url(#grid)"/>
-  <text x="24" y="48" fill="#111827" font-size="24" font-family="Arial, sans-serif">Local SVG Asset</text>
+  <text x="24" y="48" fill="#ff0000" font-size="24" font-family="Arial, sans-serif">Local SVG Asset</text>
 </svg>

@@ -18,6 +18,11 @@ export interface RendererBridge {
   onOpenImage(src: string): void;
 }
 
+interface MermaidRecoveryAttempt {
+  code: string;
+  strategy: string;
+}
+
 // Mermaid expects a global DOMPurify instance for some diagram renderers (notably class/sequence paths).
 // We already bundle DOMPurify locally; exposing it here avoids any network dependency and keeps one sanitizer instance.
 (window as Window & { DOMPurify?: typeof DOMPurify }).DOMPurify = DOMPurify;
@@ -255,9 +260,26 @@ export class PreviewRenderer {
       const id = `omv-mermaid-${index++}-${Math.random().toString(36).slice(2, 8)}`;
       try {
         const rendered = await mermaid.render(id, code);
+        node.removeAttribute('data-omv-mermaid-recovered');
+        node.removeAttribute('data-omv-mermaid-recovery-strategy');
         node.replaceChildren(buildMermaidSvgNode(rendered.svg, diagramType));
       } catch (error) {
-        node.replaceChildren(buildMermaidErrorNode(code, error));
+        const recovery = buildMermaidRecoveryAttempt(code, diagramType);
+        if (recovery) {
+          try {
+            const recovered = await mermaid.render(`${id}-recovery`, recovery.code);
+            node.setAttribute('data-omv-mermaid-recovered', 'true');
+            node.setAttribute('data-omv-mermaid-recovery-strategy', recovery.strategy);
+            node.replaceChildren(buildMermaidSvgNode(recovered.svg, diagramType));
+            continue;
+          } catch (recoveryError) {
+            const hints = buildMermaidErrorHints(code, diagramType, recoveryError);
+            node.replaceChildren(buildMermaidErrorNode(code, recoveryError, hints));
+            continue;
+          }
+        }
+        const hints = buildMermaidErrorHints(code, diagramType, error);
+        node.replaceChildren(buildMermaidErrorNode(code, error, hints));
       } finally {
         node.removeAttribute('aria-busy');
       }
@@ -565,7 +587,7 @@ function normalizePieLegendColors(svg: SVGSVGElement): void {
   });
 }
 
-function buildMermaidErrorNode(code: string, error: unknown): HTMLElement {
+function buildMermaidErrorNode(code: string, error: unknown, hints: string[] = []): HTMLElement {
   const root = document.createElement('div');
   root.className = 'omv-mermaid-error';
 
@@ -580,6 +602,24 @@ function buildMermaidErrorNode(code: string, error: unknown): HTMLElement {
   const pre = document.createElement('pre');
   pre.className = 'omv-mermaid-error-source';
   pre.textContent = code;
+
+  if (hints.length > 0) {
+    const hintBox = document.createElement('div');
+    hintBox.className = 'omv-mermaid-error-hints';
+    const label = document.createElement('div');
+    label.className = 'omv-mermaid-error-hints-title';
+    label.textContent = 'Syntax hints';
+    const list = document.createElement('ul');
+    list.className = 'omv-mermaid-error-hints-list';
+    for (const hint of hints) {
+      const item = document.createElement('li');
+      item.textContent = hint;
+      list.appendChild(item);
+    }
+    hintBox.append(label, list);
+    root.append(title, msg, hintBox, pre);
+    return root;
+  }
 
   root.append(title, msg, pre);
   return root;
@@ -611,6 +651,98 @@ function detectMermaidDiagramType(code: string | undefined | null): string {
   if (!first) return 'unknown';
   const match = /^([a-zA-Z][\w-]*)/.exec(first);
   return match?.[1] ?? 'unknown';
+}
+
+function buildMermaidRecoveryAttempt(code: string, diagramType: string): MermaidRecoveryAttempt | undefined {
+  const normalizedType = diagramType.trim().toLowerCase();
+  if (/^requirement(diagram)?$/i.test(normalizedType)) {
+    const normalized = normalizeRequirementDiagramSyntax(code);
+    if (normalized !== code) {
+      return { code: normalized, strategy: 'requirement-diagram-normalization' };
+    }
+    return undefined;
+  }
+
+  if (normalizedType === 'block-beta') {
+    const normalized = normalizeBlockBetaNodeLabels(code);
+    if (normalized !== code) {
+      return { code: normalized, strategy: 'block-beta-label-normalization' };
+    }
+  }
+
+  return undefined;
+}
+
+function normalizeRequirementDiagramSyntax(code: string): string {
+  const keyNormalized = code
+    .replace(/\bverifymethod\b/g, 'verifyMethod')
+    .replace(/\bdocref\b/g, 'docRef');
+
+  const lines = keyNormalized.split(/\r?\n/u).map((line) => {
+    const match = /^(\s*)(id|text|name|docRef)\s*:\s*(.+?)\s*$/u.exec(line);
+    if (!match) return line;
+    const [, indent, key, rawValue] = match;
+    const unquoted = rawValue.replace(/^"(.*)"$/u, '$1').trim();
+    if (key === 'id') {
+      const sanitized = unquoted.replace(/[^\w]/g, '');
+      return sanitized ? `${indent}${key}: ${sanitized}` : line;
+    }
+
+    if (!unquoted) return line;
+    const escaped = unquoted.replace(/"/g, '\\"');
+    return `${indent}${key}: "${escaped}"`;
+  });
+  return lines.join('\n');
+}
+
+function normalizeBlockBetaNodeLabels(code: string): string {
+  const lines = code.split(/\r?\n/u).map((line) => {
+    const match = /^(\s*)([A-Za-z_][\w-]*)\[(.+)\]\s*$/u.exec(line);
+    if (!match) return line;
+    const [, indent, nodeId, rawLabel] = match;
+    const label = rawLabel.replace(/^"(.*)"$/u, '$1').trim();
+    return `${indent}${nodeId}|${label}|`;
+  });
+  return lines.join('\n');
+}
+
+function buildMermaidErrorHints(code: string, diagramType: string, error: unknown): string[] {
+  const hints: string[] = [];
+  const normalizedType = diagramType.trim().toLowerCase();
+  const message = getErrorMessage(error);
+
+  if (/^(flowchart|graph)$/i.test(normalizedType)) {
+    if (/\[[^\n]*\[\][^\n]*\]/u.test(code)) {
+      hints.push('Flowchart labels with raw [] often fail inside A[...]. Use quoted labels: A["..."].');
+    }
+  }
+
+  if (/^requirement(diagram)?$/i.test(normalizedType)) {
+    if (/\bverifymethod\b/i.test(code)) {
+      hints.push('Use `verifyMethod` (camelCase), not `verifymethod`.');
+    }
+    if (/\bdocref\b/i.test(code)) {
+      hints.push('Use `docRef` (camelCase), not `docref`.');
+    }
+    if (/^\s*id\s*:\s*[^"\n]*-[^"\n]*$/mu.test(code)) {
+      hints.push('Use alphanumeric requirement IDs (for example `REQ1`) instead of `REQ-1`.');
+    }
+    if (/^\s*text\s*:\s*[^"\n]+\s+[^"\n]+$/mu.test(code)) {
+      hints.push('Quote multi-word `text:` values, e.g. `text: "render markdown offline"`.');
+    }
+  }
+
+  if (normalizedType === 'block-beta') {
+    if (/^[ \t]*[A-Za-z_][\w-]*\[[^\]]+\]/mu.test(code)) {
+      hints.push('`block-beta` does not use flowchart node syntax like `A[Label]`; use `A|Label|` or plain `A`.');
+    }
+  }
+
+  if (hints.length === 0 && /syntax error/i.test(message)) {
+    hints.push('This parser error is generic. Validate the snippet with Mermaid 11.12.x syntax rules.');
+  }
+
+  return Array.from(new Set(hints));
 }
 
 function getErrorMessage(error: unknown): string {

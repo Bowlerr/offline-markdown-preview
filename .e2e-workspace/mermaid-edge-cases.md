@@ -13,7 +13,7 @@ A[Label with spaces] --> B[Node]
 ```
 ```mermaid
 flowchart TD
-A[Edge Case: punctuation !? / [] ()] --> B[Fit]
+A["Edge Case: punctuation !? / [] ()"] --> B[Fit]
 ```
 ```mermaid
 flowchart TD
@@ -241,15 +241,14 @@ Rel(ext, file, "Reads")
 ```mermaid
 requirementDiagram
 requirement r1 {
-  id: REQ-1
-  text: render markdown offline
+  id: REQ1
+  text: "render markdown offline"
   risk: medium
-  verifymethod: test
+  verifyMethod: test
 }
 element e1 {
   type: software
-  name: renderer
-  docref: docs/renderer.md
+  docRef: "docs/renderer.md"
 }
 e1 - satisfies -> r1
 ```
@@ -275,7 +274,6 @@ xychart-beta
 ```
 ```mermaid
 sankey-beta
-source,target,value
 Markdown,AST,120
 AST,HTML,120
 HTML,Webview,118
@@ -284,8 +282,8 @@ HTML,Export,117
 ```mermaid
 block-beta
 columns 3
-A[Editor]
-B[Renderer]
-C[Webview]
+A|Editor|
+B|Renderer|
+C|Webview|
 A --> B --> C
 ```

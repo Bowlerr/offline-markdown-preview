@@ -601,6 +601,30 @@ input {
   margin: 0;
 }
 
+.omv-content .omv-mermaid-error-hints {
+  margin-bottom: 0.5rem;
+  border: 1px solid color-mix(in srgb, var(--omv-accent) 35%, var(--omv-border));
+  border-radius: 6px;
+  padding: 0.4rem 0.5rem;
+  background: color-mix(in srgb, var(--omv-accent) 8%, var(--omv-bg));
+}
+
+.omv-content .omv-mermaid-error-hints-title {
+  font-size: 12px;
+  font-weight: 600;
+  margin-bottom: 0.2rem;
+}
+
+.omv-content .omv-mermaid-error-hints-list {
+  margin: 0;
+  padding-left: 1rem;
+}
+
+.omv-content .omv-mermaid-error-hints-list li {
+  margin: 0.15rem 0;
+  font-size: 12px;
+}
+
 @keyframes omv-mermaid-loading-spin {
   to {
     transform: rotate(360deg);

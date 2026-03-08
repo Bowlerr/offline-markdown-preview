@@ -70,6 +70,173 @@ function sourceLineAttrString(token: MarkdownIt.Token): string {
   return ` ${attrs.join(' ')}`;
 }
 
+function encodeMathExpression(expr: string): string {
+  return Buffer.from(expr, 'utf8').toString('base64');
+}
+
+function renderMathPlaceholder(
+  expr: string,
+  className: 'omv-math-inline' | 'omv-math-block',
+  extraAttrs = ''
+): string {
+  if (className === 'omv-math-block') {
+    return `<div class="${className}"${extraAttrs} data-math="${encodeMathExpression(expr)}"></div>`;
+  }
+  return `<span class="${className}"${extraAttrs} data-math="${encodeMathExpression(expr)}"></span>`;
+}
+
+function isEscaped(source: string, index: number): boolean {
+  let slashCount = 0;
+  for (let i = index - 1; i >= 0 && source.charCodeAt(i) === 0x5c; i -= 1) {
+    slashCount += 1;
+  }
+  return slashCount % 2 === 1;
+}
+
+function findUnescapedDelimiter(source: string, delimiter: string, fromIndex: number): number {
+  let index = fromIndex;
+  while (index < source.length) {
+    const found = source.indexOf(delimiter, index);
+    if (found < 0) return -1;
+    if (!isEscaped(source, found)) return found;
+    index = found + delimiter.length;
+  }
+  return -1;
+}
+
+function parseInlineDollarMath(state: any, silent: boolean): boolean {
+  const { src, pos, posMax } = state;
+  if (pos + 1 >= posMax || src.charCodeAt(pos) !== 0x24 || isEscaped(src, pos)) {
+    return false;
+  }
+
+  const delimiter = src.charCodeAt(pos + 1) === 0x24 ? '$$' : '$';
+  const openLength = delimiter.length;
+  const contentStart = pos + openLength;
+  if (contentStart >= posMax) return false;
+
+  if (delimiter === '$') {
+    const nextChar = src.charAt(contentStart);
+    if (!nextChar || /\s/u.test(nextChar)) return false;
+  }
+
+  const close = findUnescapedDelimiter(src, delimiter, contentStart);
+  if (close < 0 || close > posMax) return false;
+
+  const raw = src.slice(contentStart, close);
+  if (!raw.trim()) return false;
+
+  if (delimiter === '$') {
+    const previous = raw.charAt(raw.length - 1);
+    if (!previous || /\s/u.test(previous)) return false;
+  }
+
+  if (!silent) {
+    const token = state.push('math_inline', 'math', 0);
+    token.content = raw.trim();
+    token.markup = delimiter;
+  }
+
+  state.pos = close + openLength;
+  return true;
+}
+
+function parseInlineBracketMath(state: any, silent: boolean): boolean {
+  const { src, pos, posMax } = state;
+  if (pos + 2 >= posMax || src.charCodeAt(pos) !== 0x5c || isEscaped(src, pos)) {
+    return false;
+  }
+
+  const opener = src.charAt(pos + 1);
+  const closeDelimiter = opener === '(' ? '\\)' : opener === '[' ? '\\]' : '';
+  if (!closeDelimiter) return false;
+
+  const contentStart = pos + 2;
+  const close = findUnescapedDelimiter(src, closeDelimiter, contentStart);
+  if (close < 0 || close > posMax) return false;
+
+  const raw = src.slice(contentStart, close);
+  if (!raw.trim()) return false;
+
+  if (!silent) {
+    const token = state.push('math_inline', 'math', 0);
+    token.content = raw.trim();
+    token.markup = `\\${opener}`;
+  }
+
+  state.pos = close + 2;
+  return true;
+}
+
+function parseBlockDollarMath(state: any, startLine: number, endLine: number, silent: boolean): boolean {
+  let pos = state.bMarks[startLine] + state.tShift[startLine];
+  const max = state.eMarks[startLine];
+  if (pos + 1 >= max) return false;
+
+  if (state.src.charCodeAt(pos) !== 0x24 || state.src.charCodeAt(pos + 1) !== 0x24 || isEscaped(state.src, pos)) {
+    return false;
+  }
+
+  const firstLine = state.src.slice(pos + 2, max);
+  const firstClose = findUnescapedDelimiter(firstLine, '$$', 0);
+  let nextLine = startLine;
+  let body = '';
+
+  if (firstClose >= 0) {
+    const trailing = firstLine.slice(firstClose + 2);
+    if (trailing.trim().length > 0) return false;
+    body = firstLine.slice(0, firstClose);
+  } else {
+    body = firstLine;
+    let foundClose = false;
+    for (nextLine = startLine + 1; nextLine < endLine; nextLine += 1) {
+      pos = state.bMarks[nextLine] + state.tShift[nextLine];
+      const lineMax = state.eMarks[nextLine];
+      const line = state.src.slice(pos, lineMax);
+      const closeIndex = findUnescapedDelimiter(line, '$$', 0);
+      if (closeIndex >= 0) {
+        const trailing = line.slice(closeIndex + 2);
+        if (trailing.trim().length > 0) return false;
+        body += `\n${line.slice(0, closeIndex)}`;
+        foundClose = true;
+        break;
+      }
+      body += `\n${line}`;
+    }
+
+    if (!foundClose) return false;
+  }
+
+  if (silent) return true;
+
+  const token = state.push('math_block', 'math', 0);
+  token.block = true;
+  token.content = body.trim();
+  token.map = [startLine, nextLine + 1];
+  token.markup = '$$';
+  state.line = nextLine + 1;
+  return true;
+}
+
+function installMathRules(md: MarkdownIt): void {
+  md.inline.ruler.after('escape', 'omv_math_dollar_inline', parseInlineDollarMath);
+  md.inline.ruler.after('omv_math_dollar_inline', 'omv_math_bracket_inline', parseInlineBracketMath);
+  md.block.ruler.after('blockquote', 'omv_math_dollar_block', parseBlockDollarMath, {
+    alt: ['paragraph', 'reference', 'blockquote', 'list']
+  });
+
+  md.renderer.rules.math_inline = (tokens, idx) => {
+    const token = tokens[idx];
+    return renderMathPlaceholder(token.content, 'omv-math-inline');
+  };
+
+  md.renderer.rules.math_block = (tokens, idx) => {
+    const token = tokens[idx];
+    const lineAttrs = sourceLineAttrString(token);
+    return renderMathPlaceholder(token.content, 'omv-math-block', lineAttrs);
+  };
+}
+
 // We use markdown-it for speed and predictable token maps (line mapping for scroll sync / outline).
 function createMarkdownIt(options: MarkdownRenderOptions): MarkdownIt {
   const md = new MarkdownIt({
@@ -85,6 +252,7 @@ function createMarkdownIt(options: MarkdownRenderOptions): MarkdownIt {
   md.use(anchor, {
     slugify
   });
+  installMathRules(md);
   applySourceLineAttributes(md);
 
   md.core.ruler.push('collect_toc', (state) => {
@@ -188,20 +356,6 @@ function createMarkdownIt(options: MarkdownRenderOptions): MarkdownIt {
       return original ? original(tokens, idx, opts, env, self) : self.renderToken(tokens, idx, opts);
     };
   }
-
-  const inlineRule = md.renderer.rules.text || ((tokens, idx) => tokens[idx].content);
-  md.renderer.rules.text = (tokens, idx, opts, env, self) => {
-    const raw = inlineRule(tokens, idx, opts, env, self);
-    return raw
-      .replace(/\$\$([^$]+)\$\$/g, (_, expr: string) => {
-        const encoded = Buffer.from(expr.trim(), 'utf8').toString('base64');
-        return `<span class="omv-math-inline" data-math="${encoded}"></span>`;
-      })
-      .replace(/\$([^$\n]+)\$/g, (_, expr: string) => {
-        const encoded = Buffer.from(expr.trim(), 'utf8').toString('base64');
-        return `<span class="omv-math-inline" data-math="${encoded}"></span>`;
-      });
-  };
 
   return md;
 }

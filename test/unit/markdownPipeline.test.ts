@@ -37,4 +37,70 @@ describe('markdownPipeline', () => {
     expect(result.html).toContain('<dl>');
     expect(result.html).toContain('footnote');
   });
+
+  it('parses inline and multiline display math placeholders', () => {
+    const sourceUri = Uri.file('/workspace/docs/math.md');
+    const webview = {
+      asWebviewUri(uri: { toString(): string }) {
+        return { toString: () => `vscode-webview://${uri.toString()}` };
+      }
+    };
+
+    const input = [
+      'Inline: $a^2+b^2=c^2$, $e^{i\\pi}+1=0$, $\\alpha+\\beta+\\gamma=\\pi$.',
+      '',
+      '$$ \\int_0^1 x^2\\,dx = \\frac{1}{3} $$',
+      '',
+      '$$ \\sum_{k=1}^{n} k = \\frac{n(n+1)}{2} $$',
+      '',
+      '$$',
+      '\\begin{aligned}',
+      '2x + 3y &= 7 \\\\',
+      '4x - y &= 5',
+      '\\end{aligned}',
+      '$$',
+      '',
+      '$$',
+      'A = \\begin{bmatrix}',
+      '1 & 2 & 3 \\\\',
+      '0 & 1 & 4 \\\\',
+      '5 & 6 & 0',
+      '\\end{bmatrix}',
+      '$$',
+      '',
+      '$$',
+      'f(x)= \\begin{cases}',
+      'x^2, & x < 0 \\\\',
+      '\\sin(x), & 0 \\le x < \\pi \\\\',
+      '\\ln(x), & x \\ge \\pi',
+      '\\end{cases}',
+      '$$',
+      ''
+    ].join('\n');
+
+    const result = renderMarkdown(input, {
+      sourceUri,
+      webview: webview as any,
+      allowHtml: true,
+      maxImageMB: 8
+    });
+
+    const encoded = Array.from(result.html.matchAll(/data-math="([^"]+)"/g), (match) =>
+      Buffer.from(match[1], 'base64').toString('utf8')
+    );
+
+    const inlineCount = (result.html.match(/omv-math-inline/g) ?? []).length;
+    const blockCount = (result.html.match(/omv-math-block/g) ?? []).length;
+
+    expect(inlineCount).toBe(3);
+    expect(blockCount).toBe(5);
+    expect(encoded).toContain('a^2+b^2=c^2');
+    expect(encoded).toContain('e^{i\\pi}+1=0');
+    expect(encoded).toContain('\\alpha+\\beta+\\gamma=\\pi');
+    expect(encoded.some((expr) => expr.includes('\\begin{aligned}') && expr.includes('4x - y &= 5'))).toBe(true);
+    expect(encoded.some((expr) => expr.includes('\\begin{bmatrix}') && expr.includes('5 & 6 & 0'))).toBe(true);
+    expect(encoded.some((expr) => expr.includes('\\begin{cases}') && expr.includes('\\ln(x), & x \\ge \\pi'))).toBe(
+      true
+    );
+  });
 });
