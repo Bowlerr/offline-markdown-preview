@@ -157,7 +157,7 @@ describe('security helpers', () => {
       vscodeMock.Uri.file(path.join(workspaceRoot, 'doc.md'))
     );
 
-    expect(result.cssText).toBeUndefined();
+    expect(result.cssTexts).toEqual([]);
     expect(warnings).toEqual([]);
   });
 
@@ -173,7 +173,7 @@ describe('security helpers', () => {
       vscodeMock.Uri.file(path.join(dir, 'doc.md'))
     );
 
-    expect(result.cssText).toBe('body { color: red; }');
+    expect(result.cssTexts).toEqual(['body { color: red; }']);
     expect(warnings).toEqual([]);
   });
 
@@ -186,7 +186,7 @@ describe('security helpers', () => {
       vscodeMock.Uri.file(path.join(dir, 'doc.md'))
     );
 
-    expect(result.cssText).toBeUndefined();
+    expect(result.cssTexts).toEqual([]);
     expect(warnings).toEqual([
       'Ignoring global custom CSS path because it is not an absolute .css file.'
     ]);
@@ -206,7 +206,7 @@ describe('security helpers', () => {
       vscodeMock.Uri.file(path.join(workspaceRoot, 'doc.md'))
     );
 
-    expect(result.cssText).toBe('.markdown-body { max-width: 960px; }');
+    expect(result.cssTexts).toEqual(['.markdown-body { max-width: 960px; }']);
     expect(warnings).toEqual([]);
   });
 
@@ -229,7 +229,7 @@ describe('security helpers', () => {
       vscodeMock.Uri.file(path.join(workspaceA, 'doc.md'))
     );
 
-    expect(result.cssText).toBe('.markdown-body { color: purple; }');
+    expect(result.cssTexts).toEqual(['.markdown-body { color: purple; }']);
     expect(warnings).toEqual([]);
   });
 
@@ -252,7 +252,7 @@ describe('security helpers', () => {
       vscodeMock.Uri.file(path.join(workspaceA, 'doc.md'))
     );
 
-    expect(result.cssText).toBe('.markdown-body { color: teal; }');
+    expect(result.cssTexts).toEqual(['.markdown-body { color: teal; }']);
     expect(warnings).toEqual([]);
   });
 
@@ -273,7 +273,7 @@ describe('security helpers', () => {
       vscodeMock.Uri.file(path.join(workspaceA, 'doc.md'))
     );
 
-    expect(result.cssText).toBe('.markdown-body { color: navy; }');
+    expect(result.cssTexts).toEqual(['.markdown-body { color: navy; }']);
     expect(warnings).toEqual([]);
   });
 
@@ -297,7 +297,7 @@ describe('security helpers', () => {
       vscodeMock.Uri.file(path.join(workspaceA, 'doc.md'))
     );
 
-    expect(result.cssText).toBeUndefined();
+    expect(result.cssTexts).toEqual([]);
     expect(warnings).toEqual([]);
   });
 
@@ -311,7 +311,7 @@ describe('security helpers', () => {
       vscodeMock.Uri.file(path.join(workspaceRoot, 'doc.md'))
     );
 
-    expect(result.cssText).toBeUndefined();
+    expect(result.cssTexts).toEqual([]);
     expect(warnings).toEqual([
       'Ignoring custom CSS path because it is not a workspace-local .css file.'
     ]);
@@ -330,7 +330,7 @@ describe('security helpers', () => {
       vscodeMock.Uri.file(path.join(workspaceRoot, 'doc.md'))
     );
 
-    expect(result.cssText).toBeUndefined();
+    expect(result.cssTexts).toEqual([]);
     expect(warnings).toEqual([
       'Ignoring global custom CSS path because it is not an absolute .css file.',
       'Ignoring custom CSS path because it is not a workspace-local .css file.'
@@ -354,9 +354,10 @@ describe('security helpers', () => {
       vscodeMock.Uri.file(path.join(workspaceRoot, 'doc.md'))
     );
 
-    expect(result.cssText).toBe(
-      'body { color: black; }\n\nbody { color: green; }'
-    );
+    expect(result.cssTexts).toEqual([
+      'body { color: black; }',
+      'body { color: green; }'
+    ]);
   });
 
   it('includes the workspace root in the custom CSS key', async () => {
@@ -415,8 +416,8 @@ describe('security helpers', () => {
     );
 
     expect(first.key).not.toBe(second.key);
-    expect(first.cssText).toBe('body { color: red; }');
-    expect(second.cssText).toBe('body { color: blue; }');
+    expect(first.cssTexts).toEqual(['body { color: red; }']);
+    expect(second.cssTexts).toEqual(['body { color: blue; }']);
   });
 
   it('changes the custom CSS key when a missing file later appears', async () => {
@@ -430,7 +431,7 @@ describe('security helpers', () => {
     const first = await security.resolveCustomCss(
       vscodeMock.Uri.file(path.join(workspaceRoot, 'doc.md'))
     );
-    expect(first.cssText).toBeUndefined();
+    expect(first.cssTexts).toEqual([]);
     expect(warnings).toEqual([
       'Could not read custom CSS file: styles/preview.css'
     ]);
@@ -448,6 +449,6 @@ describe('security helpers', () => {
     );
 
     expect(first.key).not.toBe(second.key);
-    expect(second.cssText).toBe('body { color: green; }');
+    expect(second.cssTexts).toEqual(['body { color: green; }']);
   });
 });

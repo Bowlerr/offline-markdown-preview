@@ -4,7 +4,7 @@ import * as path from 'node:path';
 import * as vscode from 'vscode';
 
 export interface ResolvedCustomCss {
-  cssText?: string;
+  cssTexts: string[];
   key: string;
 }
 
@@ -279,14 +279,14 @@ export async function resolveCustomCss(
   documentUri: vscode.Uri
 ): Promise<ResolvedCustomCss> {
   const config = getCustomCssConfig(documentUri);
-  const cssParts: string[] = [];
+  const cssTexts: string[] = [];
   let globalHash = '';
   let workspaceHash = '';
 
   if (config.globalPath) {
     const globalCss = await readGlobalCustomCss(config.globalPath);
     if (globalCss) {
-      cssParts.push(globalCss);
+      cssTexts.push(globalCss);
       globalHash = hashCssText(globalCss);
     }
   }
@@ -294,13 +294,13 @@ export async function resolveCustomCss(
   if (config.workspacePath) {
     const workspaceCss = await readWorkspaceCustomCss(config);
     if (workspaceCss) {
-      cssParts.push(workspaceCss);
+      cssTexts.push(workspaceCss);
       workspaceHash = hashCssText(workspaceCss);
     }
   }
 
   return {
-    cssText: cssParts.length > 0 ? cssParts.join('\n\n') : undefined,
+    cssTexts,
     key: JSON.stringify({
       config: buildCustomCssKey(config),
       globalHash,

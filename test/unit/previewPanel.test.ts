@@ -203,10 +203,13 @@ function createPreviewPanelTestContext(options: {
           ? Uri.file(options.workspaceFolderPaths[0])
           : undefined
     ),
-    inlineCssTag: vi.fn((cssText: string) => `<style>${cssText}</style>`),
+    inlineCssTag: vi.fn(
+      (cssText: string, _nonce: string, attributes = '') =>
+        `<style${attributes}>${cssText}</style>`
+    ),
     resolveCustomCss: vi.fn(async () => ({
       key: 'custom-css',
-      cssText: undefined
+      cssTexts: []
     }))
   };
 
@@ -347,7 +350,7 @@ describe('PreviewController custom CSS', () => {
 
     securityMock.resolveCustomCss.mockResolvedValue({
       key: 'closed-custom-css',
-      cssText: undefined
+      cssTexts: []
     });
 
     const controller = new module.PreviewController({
@@ -386,7 +389,7 @@ describe('PreviewController custom CSS', () => {
     expect((controller as any).webviewCustomCssDirty).toBe(false);
     expect(postMessage).toHaveBeenCalledWith({
       type: 'updateCustomCss',
-      cssText: undefined
+      cssTexts: []
     });
   });
 
@@ -401,7 +404,7 @@ describe('PreviewController custom CSS', () => {
 
     securityMock.resolveCustomCss.mockResolvedValue({
       key: 'updated-custom-css',
-      cssText: '.omv-content { color: red; }'
+      cssTexts: ['.omv-content { color: red; }']
     });
 
     const controller = new module.PreviewController({
@@ -426,7 +429,9 @@ describe('PreviewController custom CSS', () => {
     };
     (controller as any).webviewCustomCssDirty = false;
     (controller as any).webviewCustomCssKey = 'initial-custom-css';
-    (controller as any).webviewCustomCssText = '.omv-content { color: blue; }';
+    (controller as any).webviewCustomCssTexts = [
+      '.omv-content { color: blue; }'
+    ];
 
     changeTextDocument({
       document: {
@@ -438,19 +443,22 @@ describe('PreviewController custom CSS', () => {
 
     expect(postMessage).toHaveBeenCalledWith({
       type: 'updateCustomCss',
-      cssText: '.omv-content { color: red; }'
+      cssTexts: ['.omv-content { color: red; }']
     });
     expect(renderMarkdown).not.toHaveBeenCalled();
   });
 
-  it('includes configured custom CSS in standalone export HTML', async () => {
+  it('keeps custom CSS in separate style tags in standalone export HTML', async () => {
     const { module, securityMock } = await loadPreviewPanelTestModule({
       workspaceFolderPaths: ['/workspace-a']
     });
 
     securityMock.resolveCustomCss.mockResolvedValue({
       key: 'export-custom-css',
-      cssText: '.omv-content { color: red; }'
+      cssTexts: [
+        '.omv-content { color: red; }',
+        '@import url("https://example.com/theme.css");'
+      ]
     });
 
     const controller = new module.PreviewController({
@@ -470,9 +478,14 @@ describe('PreviewController custom CSS', () => {
       Uri.file('/workspace-a/doc.md')
     );
     expect(html).toContain('<style>body { color: black; }</style>');
-    expect(html).toContain('<style>.omv-content { color: red; }</style>');
-    expect(html.indexOf('<style>body { color: black; }</style>')).toBeLessThan(
-      html.indexOf('<style>.omv-content { color: red; }</style>')
+    expect(html).toContain(
+      '<style data-omv-custom-css="0">.omv-content { color: red; }</style>'
+    );
+    expect(html).toContain(
+      '<style data-omv-custom-css="1">@import url("https://example.com/theme.css");</style>'
+    );
+    expect(html.indexOf('<style data-omv-custom-css="0">')).toBeLessThan(
+      html.indexOf('<style data-omv-custom-css="1">')
     );
   });
 });

@@ -61,7 +61,7 @@ export interface RequestHtmlExportSnapshotPayload {
 
 export interface UpdateCustomCssPayload {
   type: 'updateCustomCss';
-  cssText?: string;
+  cssTexts: string[];
 }
 
 export type ExtensionToWebviewMessage =

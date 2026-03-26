@@ -158,7 +158,7 @@ export class PreviewController implements vscode.Disposable {
   private webviewAllowsRemoteImages: boolean | undefined;
   private webviewCustomCssDirty = true;
   private webviewCustomCssKey: string | undefined;
-  private webviewCustomCssText: string | undefined;
+  private webviewCustomCssTexts: string[] | undefined;
   private readonly remoteImageOverrides = new Map<string, vscode.Uri>();
   private htmlExportSnapshotReqId = 0;
   private pendingHtmlExportSnapshot:
@@ -379,12 +379,12 @@ export class PreviewController implements vscode.Disposable {
     this.panel.webview.html = await this.buildWebviewHtml(
       this.panel.webview,
       settings,
-      customCss.cssText
+      customCss.cssTexts
     );
     this.webviewAllowsRemoteImages = settings.allowRemoteImages;
     this.webviewCustomCssDirty = false;
     this.webviewCustomCssKey = customCss.key;
-    this.webviewCustomCssText = customCss.cssText;
+    this.webviewCustomCssTexts = customCss.cssTexts;
     this.disposables.push(
       this.panel,
       this.panel.onDidDispose(() => {
@@ -394,7 +394,7 @@ export class PreviewController implements vscode.Disposable {
         this.webviewAllowsRemoteImages = undefined;
         this.webviewCustomCssDirty = true;
         this.webviewCustomCssKey = undefined;
-        this.webviewCustomCssText = undefined;
+        this.webviewCustomCssTexts = undefined;
         this.remoteImageOverrides.clear();
       }),
       this.panel.onDidChangeViewState((event) => {
@@ -1136,7 +1136,7 @@ export class PreviewController implements vscode.Disposable {
   private async buildWebviewHtml(
     webview: vscode.Webview,
     settings: RuntimeSettings,
-    customCssText?: string
+    customCssTexts: string[] = []
   ): Promise<string> {
     const nonce = createNonce();
     const scriptUri = webview.asWebviewUri(
@@ -1159,11 +1159,15 @@ export class PreviewController implements vscode.Disposable {
     const csp = buildWebviewCsp(webview.cspSource, nonce, {
       allowRemoteImages: settings.allowRemoteImages
     });
-    const customCssTag = inlineCssTag(
-      customCssText ?? '',
-      nonce,
-      ' id="omv-custom-css"'
-    );
+    const customCssTags = customCssTexts
+      .map((cssText, index) =>
+        inlineCssTag(
+          cssText,
+          nonce,
+          ` id="omv-custom-css-${index}" data-omv-custom-css="true"`
+        )
+      )
+      .join('\n  ');
 
     return `<!DOCTYPE html>
 <html lang="en">
@@ -1173,7 +1177,7 @@ export class PreviewController implements vscode.Disposable {
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Offline Markdown Preview</title>
   <link nonce="${nonce}" rel="stylesheet" href="${cssUri}" />
-  ${customCssTag}
+  ${customCssTags}
 </head>
 <body>
   <div id="app"></div>
@@ -1195,7 +1199,7 @@ export class PreviewController implements vscode.Disposable {
 
     const customCss = await this.resolvePendingCustomCss(documentUri);
     const nextCustomCssKey = customCss.key;
-    const nextCustomCssText = customCss.cssText;
+    const nextCustomCssTexts = customCss.cssTexts;
 
     const customCssChanged = this.webviewCustomCssKey !== nextCustomCssKey;
     if (!remoteImagesChanged && !customCssChanged) {
@@ -1206,18 +1210,18 @@ export class PreviewController implements vscode.Disposable {
       this.panel.webview.html = await this.buildWebviewHtml(
         this.panel.webview,
         settings,
-        nextCustomCssText
+        nextCustomCssTexts
       );
     } else {
       this.postMessage({
         type: 'updateCustomCss',
-        cssText: nextCustomCssText
+        cssTexts: nextCustomCssTexts
       });
     }
 
     this.webviewAllowsRemoteImages = settings.allowRemoteImages;
     this.webviewCustomCssKey = nextCustomCssKey;
-    this.webviewCustomCssText = nextCustomCssText;
+    this.webviewCustomCssTexts = nextCustomCssTexts;
     return remoteImagesChanged;
   }
 
@@ -1235,19 +1239,19 @@ export class PreviewController implements vscode.Disposable {
 
     this.postMessage({
       type: 'updateCustomCss',
-      cssText: customCss.cssText
+      cssTexts: customCss.cssTexts
     });
     this.webviewCustomCssKey = customCss.key;
-    this.webviewCustomCssText = customCss.cssText;
+    this.webviewCustomCssTexts = customCss.cssTexts;
   }
 
   private async resolvePendingCustomCss(
     documentUri: vscode.Uri
-  ): Promise<{ key: string; cssText?: string }> {
+  ): Promise<{ key: string; cssTexts: string[] }> {
     if (!this.webviewCustomCssDirty && this.webviewCustomCssKey !== undefined) {
       return {
         key: this.webviewCustomCssKey,
-        cssText: this.webviewCustomCssText
+        cssTexts: this.webviewCustomCssTexts ?? []
       };
     }
 
@@ -1719,9 +1723,15 @@ export class PreviewController implements vscode.Disposable {
         'body{font-family:sans-serif;padding:1rem;max-width:900px;margin:0 auto;}';
     }
     const customCss = await resolveCustomCss(sourceUri);
-    const customCssTag = customCss.cssText
-      ? inlineCssTag(customCss.cssText, 'omv-export-custom-css')
-      : '';
+    const customCssTags = customCss.cssTexts
+      .map((cssText, index) =>
+        inlineCssTag(
+          cssText,
+          'omv-export-custom-css',
+          ` data-omv-custom-css="${index}"`
+        )
+      )
+      .join('\n');
 
     const frontmatter =
       settings.showFrontmatter && this.state.snapshot?.frontmatter
@@ -1735,7 +1745,7 @@ export class PreviewController implements vscode.Disposable {
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>${escapeHtml(path.basename(sourceUri.fsPath))}</title>
 <style>${baseCss}</style>
-${customCssTag}
+${customCssTags}
 </head>
 <body>
 ${frontmatter}

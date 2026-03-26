@@ -24,7 +24,7 @@ interface ViewState {
   tocVisible?: boolean;
 }
 
-const CUSTOM_CSS_STYLE_ID = 'omv-custom-css';
+const CUSTOM_CSS_STYLE_SELECTOR = 'style[data-omv-custom-css="true"]';
 
 const vscode = acquireVsCodeApi();
 blockRemoteNetworking();
@@ -192,7 +192,7 @@ vscode.postMessage({ type: 'ready' });
 async function handleMessage(message: ExtensionToWebviewMessage): Promise<void> {
   switch (message.type) {
     case 'updateCustomCss': {
-      applyCustomCss(message.cssText);
+      applyCustomCss(message.cssTexts);
       break;
     }
     case 'render': {
@@ -251,18 +251,28 @@ async function handleMessage(message: ExtensionToWebviewMessage): Promise<void> 
   }
 }
 
-function applyCustomCss(cssText?: string): void {
-  let styleEl = document.getElementById(CUSTOM_CSS_STYLE_ID);
-  if (!(styleEl instanceof HTMLStyleElement)) {
-    styleEl = document.createElement('style');
-    styleEl.id = CUSTOM_CSS_STYLE_ID;
-    const styleNonce = getBootStyleNonce();
+function applyCustomCss(cssTexts: string[]): void {
+  const existing = Array.from(
+    document.head.querySelectorAll<HTMLStyleElement>(CUSTOM_CSS_STYLE_SELECTOR)
+  );
+  const styleNonce = getBootStyleNonce();
+
+  cssTexts.forEach((cssText, index) => {
+    let styleEl = existing[index];
+    if (!(styleEl instanceof HTMLStyleElement)) {
+      styleEl = document.createElement('style');
+      document.head.append(styleEl);
+    }
+
+    styleEl.id = `omv-custom-css-${index}`;
+    styleEl.setAttribute('data-omv-custom-css', 'true');
     if (styleNonce) {
       styleEl.setAttribute('nonce', styleNonce);
     }
-    document.head.append(styleEl);
-  }
-  styleEl.textContent = cssText ?? '';
+    styleEl.textContent = cssText;
+  });
+
+  existing.slice(cssTexts.length).forEach((styleEl) => styleEl.remove());
 }
 
 function getBootStyleNonce(): string | undefined {

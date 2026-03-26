@@ -35,11 +35,11 @@ describe('messaging validation', () => {
   it('accepts custom CSS update messages', () => {
     const msg = parseExtensionMessage({
       type: 'updateCustomCss',
-      cssText: '.omv-content { color: red; }'
+      cssTexts: ['.omv-content { color: red; }']
     });
     expect(msg).toMatchObject({
       type: 'updateCustomCss',
-      cssText: '.omv-content { color: red; }'
+      cssTexts: ['.omv-content { color: red; }']
     });
   });
 });

@@ -79,7 +79,7 @@ const extSchema = z.discriminatedUnion('type', [
   }),
   z.object({
     type: z.literal('updateCustomCss'),
-    cssText: z.string().optional()
+    cssTexts: z.array(z.string())
   })
 ]);
 
