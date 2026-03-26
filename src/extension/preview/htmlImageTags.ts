@@ -152,6 +152,47 @@ export function getHtmlAttribute(
   );
 }
 
+function isValidSrcsetDescriptorSequence(value: string): boolean {
+  const tokens = value.trim().split(/\s+/).filter(Boolean);
+  if (tokens.length === 0) {
+    return false;
+  }
+
+  let sawDensity = false;
+  let sawWidth = false;
+  let sawHeight = false;
+
+  for (const token of tokens) {
+    if (/^\d+w$/i.test(token)) {
+      if (sawDensity || sawWidth) {
+        return false;
+      }
+      sawWidth = true;
+      continue;
+    }
+
+    if (/^\d+h$/i.test(token)) {
+      if (sawDensity || sawHeight) {
+        return false;
+      }
+      sawHeight = true;
+      continue;
+    }
+
+    if (/^(?:\d+|\d*\.\d+)x$/i.test(token)) {
+      if (sawDensity || sawWidth || sawHeight) {
+        return false;
+      }
+      sawDensity = true;
+      continue;
+    }
+
+    return false;
+  }
+
+  return true;
+}
+
 export function parseHtmlSrcset(value: string): HtmlSrcsetCandidate[] {
   const candidates: HtmlSrcsetCandidate[] = [];
   let index = 0;
@@ -165,23 +206,53 @@ export function parseHtmlSrcset(value: string): HtmlSrcsetCandidate[] {
     }
 
     const urlStart = index;
-    while (index < value.length && !/[\s,]/.test(value[index])) {
+    const isDataUrl = /^data:/i.test(value.slice(index));
+    while (
+      index < value.length &&
+      !/\s/.test(value[index]) &&
+      (isDataUrl || value[index] !== ',')
+    ) {
       index += 1;
     }
 
-    const url = value.slice(urlStart, index);
-    const descriptorStart = index;
+    let url = value.slice(urlStart, index);
+    if (!url) {
+      if (value[index] === ',') {
+        index += 1;
+      }
+      continue;
+    }
+
+    if (!isDataUrl && value[index] === ',') {
+      candidates.push({ url });
+      index += 1;
+      continue;
+    }
+
     while (index < value.length && value[index] !== ',') {
       index += 1;
     }
+    const descriptorEnd = index;
+    const descriptor = value
+      .slice(url.length + urlStart, descriptorEnd)
+      .trim();
 
-    const descriptor = value.slice(descriptorStart, index).trim();
-    if (url) {
-      candidates.push({
-        url,
-        descriptor: descriptor || undefined
-      });
+    if (
+      isDataUrl &&
+      url.endsWith(',') &&
+      descriptor &&
+      !isValidSrcsetDescriptorSequence(descriptor)
+    ) {
+      url = url.slice(0, -1);
+      index = urlStart + url.length + 1;
+      candidates.push({ url });
+      continue;
     }
+
+    candidates.push({
+      url,
+      descriptor: descriptor || undefined
+    });
 
     if (value[index] === ',') {
       index += 1;

@@ -1830,16 +1830,20 @@ export class PreviewController implements vscode.Disposable {
 
       const localSrc = getHtmlAttribute(parsed.attributes, 'data-local-src')
         ?.value;
+      const remoteSrc = getHtmlAttribute(parsed.attributes, 'data-remote-src')
+        ?.value;
       const exportSrcset = getHtmlAttribute(
         parsed.attributes,
         'data-export-srcset'
       )?.value;
-      if (!localSrc && !exportSrcset) {
+      if (!localSrc && !remoteSrc && !exportSrcset) {
         return tag;
       }
 
       if (localSrc) {
         setHtmlAttribute(parsed.attributes, 'src', localSrc);
+      } else if (remoteSrc) {
+        setHtmlAttribute(parsed.attributes, 'src', remoteSrc);
       }
       if (exportSrcset) {
         setHtmlAttribute(parsed.attributes, 'srcset', exportSrcset);

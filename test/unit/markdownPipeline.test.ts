@@ -319,7 +319,9 @@ describe('markdownPipeline', () => {
     );
     expect(result.html).toContain('src=""');
     expect(result.html).toContain('srcset=""');
-    expect(result.html).not.toContain('https://example.com/image@2x.gif');
+    expect(result.html).toContain(
+      'data-export-srcset="https://example.com/image.gif 1x, https://example.com/image@2x.gif 2x"'
+    );
   });
 
   it('rewrites raw HTML srcset when a remote image override exists', () => {
@@ -381,5 +383,32 @@ describe('markdownPipeline', () => {
     );
     expect(result.html).not.toContain('data-local-src=');
     expect(result.html).toContain('data-kind="example"');
+  });
+
+  it('preserves data URL srcset candidates when rewriting raw HTML images', () => {
+    const sourceUri = Uri.file('/workspace/docs/readme.md');
+    const webview = {
+      asWebviewUri(uri: { toString(): string }) {
+        return { toString: () => `vscode-webview://${uri.toString()}` };
+      }
+    };
+
+    const result = renderMarkdown(
+      '<img src="images/scroll.gif" srcset="data:image/svg+xml;base64,PHN2Zy8+ 1x, images/scroll@2x.gif 2x" />',
+      {
+        sourceUri,
+        webview: webview as any,
+        allowHtml: true,
+        allowRemoteImages: false,
+        maxImageMB: 100
+      }
+    );
+
+    expect(result.html).toContain(
+      'srcset="data:image/svg+xml;base64,PHN2Zy8+ 1x, vscode-webview://file:///workspace/docs/images/scroll@2x.gif 2x"'
+    );
+    expect(result.html).toContain(
+      'data-export-srcset="data:image/svg+xml;base64,PHN2Zy8+ 1x, file:///workspace/docs/images/scroll@2x.gif 2x"'
+    );
   });
 });

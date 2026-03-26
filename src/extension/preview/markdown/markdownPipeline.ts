@@ -226,6 +226,10 @@ function rewriteImageAttributes(
   } else if (/^https?:\/\//i.test(rawSrc) && !options.allowRemoteImages) {
     setHtmlAttribute(attributes, 'data-remote-src', rawSrc);
     setHtmlAttribute(attributes, 'data-image-blocked', 'remote-disabled');
+    const srcset = getHtmlAttribute(attributes, 'srcset')?.value;
+    if (srcset) {
+      setHtmlAttribute(attributes, 'data-export-srcset', srcset);
+    }
     setHtmlAttribute(attributes, 'src', '');
     setHtmlAttribute(attributes, 'srcset', '');
   }

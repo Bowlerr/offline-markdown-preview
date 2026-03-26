@@ -227,7 +227,9 @@ export class PreviewRenderer {
       btn.textContent = 'Download Image';
 
       block.append(text, btn);
-      img.replaceWith(block);
+      img.hidden = true;
+      img.setAttribute('aria-hidden', 'true');
+      img.insertAdjacentElement('afterend', block);
     }
   }
 

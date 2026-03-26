@@ -447,6 +447,18 @@ function buildRenderedHtmlExportSnapshot(): {
     }
   }
 
+  for (const block of clone.querySelectorAll<HTMLElement>('.omv-remote-image')) {
+    block.remove();
+  }
+
+  for (const img of clone.querySelectorAll<HTMLImageElement>(
+    'img[data-remote-src]'
+  )) {
+    img.hidden = false;
+    img.removeAttribute('hidden');
+    img.removeAttribute('aria-hidden');
+  }
+
   // Remove preview-only state attrs.
   for (const el of clone.querySelectorAll<HTMLElement>(
     '[aria-current],[aria-busy]'

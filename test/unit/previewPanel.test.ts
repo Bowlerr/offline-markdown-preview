@@ -687,6 +687,25 @@ describe('PreviewController custom CSS', () => {
     );
   });
 
+  it('restores blocked remote image sources and srcset for export', async () => {
+    const { module } = await loadPreviewPanelTestModule({
+      workspaceFolderPaths: ['/workspace-a']
+    });
+
+    const controller = new module.PreviewController({
+      extensionUri: Uri.file('/extension'),
+      globalStorageUri: Uri.file('/global-storage')
+    } as any);
+
+    const html = (controller as any).rewriteLocalImageSourcesForExport(
+      '<p><img data-remote-src="https://example.com/demo.gif" src="" data-export-srcset="https://example.com/demo.gif 1x, https://example.com/demo@2x.gif 2x" srcset="" /></p>'
+    );
+
+    expect(html).toContain(
+      '<img data-remote-src="https://example.com/demo.gif" src="https://example.com/demo.gif" data-export-srcset="https://example.com/demo.gif 1x, https://example.com/demo@2x.gif 2x" srcset="https://example.com/demo.gif 1x, https://example.com/demo@2x.gif 2x" />'
+    );
+  });
+
   it('hydrates new webviews with the saved preview UI toggle state', async () => {
     const { globalState, module } = await loadPreviewPanelTestModule({
       workspaceFolderPaths: ['/workspace-a'],
