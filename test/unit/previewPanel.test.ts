@@ -664,7 +664,7 @@ describe('PreviewController custom CSS', () => {
     );
 
     expect(html).toContain(
-      '<img data-local-src="file:///workspace-a/images/demo.gif" alt="a &gt; b" src="file:///workspace-a/images/demo.gif" />'
+      '<img data-local-src="file:///workspace-a/images/demo.gif" alt="a > b" src="file:///workspace-a/images/demo.gif" />'
     );
   });
 

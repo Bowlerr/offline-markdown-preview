@@ -192,9 +192,61 @@ describe('markdownPipeline', () => {
     expect(result.html).toContain(
       'src="vscode-webview://file:///workspace/docs/images/scroll.gif"'
     );
-    expect(result.html).toContain('alt="a &gt; b"');
+    expect(result.html).toContain('alt="a > b"');
     expect(result.html).toContain(
       'data-local-src="file:///workspace/docs/images/scroll.gif"'
     );
+  });
+
+  it('preserves existing HTML entities when raw img tags are rewritten', () => {
+    const sourceUri = Uri.file('/workspace/docs/readme.md');
+    const webview = {
+      asWebviewUri(uri: { toString(): string }) {
+        return { toString: () => `vscode-webview://${uri.toString()}` };
+      }
+    };
+
+    const result = renderMarkdown(
+      '<img src="https://example.com/image.gif?a=1&amp;b=2" alt="AT&amp;T" />',
+      {
+        sourceUri,
+        webview: webview as any,
+        allowHtml: true,
+        allowRemoteImages: true,
+        maxImageMB: 100
+      }
+    );
+
+    expect(result.html).toContain(
+      'src="https://example.com/image.gif?a=1&amp;b=2"'
+    );
+    expect(result.html).toContain('alt="AT&amp;T"');
+    expect(result.html).not.toContain('&amp;amp;');
+  });
+
+  it('ignores img-like text inside other HTML attribute values', () => {
+    const sourceUri = Uri.file('/workspace/docs/readme.md');
+    const webview = {
+      asWebviewUri(uri: { toString(): string }) {
+        return { toString: () => `vscode-webview://${uri.toString()}` };
+      }
+    };
+
+    const result = renderMarkdown(
+      `<div data-template="<img src='images/scroll.gif' alt='demo'>" data-kind="example"></div>`,
+      {
+        sourceUri,
+        webview: webview as any,
+        allowHtml: true,
+        allowRemoteImages: false,
+        maxImageMB: 100
+      }
+    );
+
+    expect(result.html).toContain(
+      `data-template="<img src='images/scroll.gif' alt='demo'>"`
+    );
+    expect(result.html).not.toContain('data-local-src=');
+    expect(result.html).toContain('data-kind="example"');
   });
 });
