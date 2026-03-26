@@ -191,13 +191,13 @@ export class PreviewController implements vscode.Disposable {
 
         if (this.isCurrentCustomCssUri(e.document.uri)) {
           this.webviewCustomCssDirty = true;
-          this.scheduleRender(true);
+          void this.refreshCustomCssOnly();
         }
       }),
       vscode.workspace.onDidSaveTextDocument((document) => {
         if (this.isCurrentCustomCssUri(document.uri)) {
           this.webviewCustomCssDirty = true;
-          this.scheduleRender(true);
+          void this.refreshCustomCssOnly();
         }
       }),
       vscode.window.onDidChangeActiveTextEditor((editor) => {
@@ -247,7 +247,7 @@ export class PreviewController implements vscode.Disposable {
       vscode.workspace.onDidCloseTextDocument((document) => {
         if (this.isCurrentCustomCssUri(document.uri)) {
           this.webviewCustomCssDirty = true;
-          this.scheduleRender(true);
+          void this.refreshCustomCssOnly();
         }
 
         if (document.languageId !== 'markdown') return;
@@ -1195,14 +1195,9 @@ export class PreviewController implements vscode.Disposable {
     const remoteImagesChanged =
       this.webviewAllowsRemoteImages !== settings.allowRemoteImages;
 
-    let nextCustomCssKey = this.webviewCustomCssKey;
-    let nextCustomCssText = this.webviewCustomCssText;
-    if (this.webviewCustomCssDirty || this.webviewCustomCssKey === undefined) {
-      const customCss = await resolveCustomCss(documentUri);
-      nextCustomCssKey = customCss.key;
-      nextCustomCssText = customCss.cssText;
-      this.webviewCustomCssDirty = false;
-    }
+    const customCss = await this.resolvePendingCustomCss(documentUri);
+    const nextCustomCssKey = customCss.key;
+    const nextCustomCssText = customCss.cssText;
 
     const customCssChanged = this.webviewCustomCssKey !== nextCustomCssKey;
     if (!remoteImagesChanged && !customCssChanged) {
@@ -1226,6 +1221,41 @@ export class PreviewController implements vscode.Disposable {
     this.webviewCustomCssKey = nextCustomCssKey;
     this.webviewCustomCssText = nextCustomCssText;
     return remoteImagesChanged;
+  }
+
+  private async refreshCustomCssOnly(): Promise<void> {
+    const panel = this.panel;
+    const editor = this.currentEditor;
+    if (!panel || !editor || editor.document.languageId !== 'markdown') {
+      return;
+    }
+
+    const customCss = await this.resolvePendingCustomCss(editor.document.uri);
+    if (this.webviewCustomCssKey === customCss.key) {
+      return;
+    }
+
+    this.postMessage({
+      type: 'updateCustomCss',
+      cssText: customCss.cssText
+    });
+    this.webviewCustomCssKey = customCss.key;
+    this.webviewCustomCssText = customCss.cssText;
+  }
+
+  private async resolvePendingCustomCss(
+    documentUri: vscode.Uri
+  ): Promise<{ key: string; cssText?: string }> {
+    if (!this.webviewCustomCssDirty && this.webviewCustomCssKey !== undefined) {
+      return {
+        key: this.webviewCustomCssKey,
+        cssText: this.webviewCustomCssText
+      };
+    }
+
+    const customCss = await resolveCustomCss(documentUri);
+    this.webviewCustomCssDirty = false;
+    return customCss;
   }
 
   private isCurrentCustomCssUri(uri: vscode.Uri): boolean {

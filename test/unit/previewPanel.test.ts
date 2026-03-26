@@ -209,7 +209,14 @@ function createPreviewPanelTestContext(options: {
   };
 
   return {
+    changeTextDocument: textDocumentChange.fire,
     closeTextDocument: textDocumentClose.fire,
+    renderMarkdown: vi.fn(() => ({
+      html: '<p>Rendered</p>',
+      toc: [],
+      frontmatter: undefined,
+      lineCount: 1
+    })),
     securityMock,
     update,
     vscodeMock
@@ -222,6 +229,9 @@ async function loadPreviewPanelTestModule(
   vi.resetModules();
   const context = createPreviewPanelTestContext(options);
   vi.doMock('vscode', () => context.vscodeMock);
+  vi.doMock('../../src/extension/preview/markdown/markdownPipeline', () => ({
+    renderMarkdown: context.renderMarkdown
+  }));
   vi.doMock('../../src/extension/preview/markdown/security', () => context.securityMock);
   const module = await import('../../src/extension/preview/PreviewPanel');
   return { ...context, module };
@@ -230,6 +240,7 @@ async function loadPreviewPanelTestModule(
 afterEach(() => {
   vi.resetModules();
   vi.doUnmock('vscode');
+  vi.doUnmock('../../src/extension/preview/markdown/markdownPipeline');
   vi.doUnmock('../../src/extension/preview/markdown/security');
   vi.clearAllMocks();
 });
@@ -258,12 +269,18 @@ describe('PreviewController custom CSS', () => {
     );
   });
 
-  it('invalidates cached custom CSS when the stylesheet is closed', async () => {
+  it('refreshes custom CSS immediately when the stylesheet is closed', async () => {
     const cssUri = Uri.file('/workspace-a/styles/preview.css');
-    const { closeTextDocument, module } = await loadPreviewPanelTestModule({
-      workspaceFolderPaths: ['/workspace-a'],
-      activeEditorPath: '/workspace-a/doc.md',
-      customCssUris: [cssUri]
+    const { closeTextDocument, module, securityMock } =
+      await loadPreviewPanelTestModule({
+        workspaceFolderPaths: ['/workspace-a'],
+        activeEditorPath: '/workspace-a/doc.md',
+        customCssUris: [cssUri]
+      });
+
+    securityMock.resolveCustomCss.mockResolvedValue({
+      key: 'closed-custom-css',
+      cssText: undefined
     });
 
     const controller = new module.PreviewController({
@@ -271,26 +288,91 @@ describe('PreviewController custom CSS', () => {
       globalStorageUri: Uri.file('/global-storage')
     } as any);
 
-    const scheduleRender = vi
-      .spyOn(controller as any, 'scheduleRender')
-      .mockImplementation(() => {});
-
-    (controller as any).panel = {};
+    const postMessage = vi.fn();
+    (controller as any).panel = {
+      webview: {
+        postMessage
+      }
+    };
     (controller as any).currentEditor = {
       document: {
         languageId: 'markdown',
         uri: Uri.file('/workspace-a/doc.md'),
-        lineCount: 1
+        lineCount: 1,
+        version: 1,
+        getText: () => '# Doc'
       }
     };
     (controller as any).webviewCustomCssDirty = false;
+    (controller as any).webviewCustomCssKey = 'initial-custom-css';
 
     closeTextDocument({
       languageId: 'css',
       uri: cssUri
     });
+    await Promise.resolve();
+    await Promise.resolve();
 
-    expect((controller as any).webviewCustomCssDirty).toBe(true);
-    expect(scheduleRender).toHaveBeenCalledWith(true);
+    expect(securityMock.resolveCustomCss).toHaveBeenCalledWith(
+      Uri.file('/workspace-a/doc.md')
+    );
+    expect((controller as any).webviewCustomCssDirty).toBe(false);
+    expect(postMessage).toHaveBeenCalledWith({
+      type: 'updateCustomCss',
+      cssText: undefined
+    });
+  });
+
+  it('updates custom CSS without rerendering markdown on stylesheet edits', async () => {
+    const cssUri = Uri.file('/workspace-a/styles/preview.css');
+    const { changeTextDocument, module, renderMarkdown, securityMock } =
+      await loadPreviewPanelTestModule({
+        workspaceFolderPaths: ['/workspace-a'],
+        activeEditorPath: '/workspace-a/doc.md',
+        customCssUris: [cssUri]
+      });
+
+    securityMock.resolveCustomCss.mockResolvedValue({
+      key: 'updated-custom-css',
+      cssText: '.omv-content { color: red; }'
+    });
+
+    const controller = new module.PreviewController({
+      extensionUri: Uri.file('/extension'),
+      globalStorageUri: Uri.file('/global-storage')
+    } as any);
+
+    const postMessage = vi.fn();
+    (controller as any).panel = {
+      webview: {
+        postMessage
+      }
+    };
+    (controller as any).currentEditor = {
+      document: {
+        languageId: 'markdown',
+        uri: Uri.file('/workspace-a/doc.md'),
+        lineCount: 1,
+        version: 1,
+        getText: () => '# Doc'
+      }
+    };
+    (controller as any).webviewCustomCssDirty = false;
+    (controller as any).webviewCustomCssKey = 'initial-custom-css';
+    (controller as any).webviewCustomCssText = '.omv-content { color: blue; }';
+
+    changeTextDocument({
+      document: {
+        uri: cssUri
+      }
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(postMessage).toHaveBeenCalledWith({
+      type: 'updateCustomCss',
+      cssText: '.omv-content { color: red; }'
+    });
+    expect(renderMarkdown).not.toHaveBeenCalled();
   });
 });
