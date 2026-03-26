@@ -59,6 +59,13 @@ interface HtmlExportSnapshotData {
   themeVariables?: Record<string, string>;
 }
 
+function withSvgFragment(url: string, uri: vscode.Uri): string {
+  if (!uri.fragment || path.extname(uri.fsPath || uri.path).toLowerCase() !== '.svg') {
+    return url;
+  }
+  return `${url}#${uri.fragment}`;
+}
+
 interface RuntimeSettings {
   enableMermaid: boolean;
   enableMath: boolean;
@@ -1781,7 +1788,11 @@ export class PreviewController implements vscode.Disposable {
         if (bytes > 0 && bytes <= maxImageMB * 1024 * 1024) {
           const dataUri = await toDataUri(localUri).catch(() => undefined);
           if (dataUri) {
-            setHtmlAttribute(parsed.attributes, 'src', dataUri);
+            setHtmlAttribute(
+              parsed.attributes,
+              'src',
+              withSvgFragment(dataUri, localUri)
+            );
             changed = true;
           }
         }
@@ -1807,7 +1818,7 @@ export class PreviewController implements vscode.Disposable {
 
             changed = true;
             return {
-              url: dataUri,
+              url: withSvgFragment(dataUri, localUri),
               descriptor: candidate.descriptor
             };
           })

@@ -76,20 +76,33 @@ export async function toDataUri(uri: vscode.Uri): Promise<string> {
   return `data:${mime};base64,${bytes.toString('base64')}`;
 }
 
-function stripLocalImageUrlDecoration(src: string): string {
-  const queryIndex = src.indexOf('?');
+function stripLocalImageUrlDecoration(src: string): {
+  normalizedSrc: string;
+  fragment?: string;
+} {
   const hashIndex = src.indexOf('#');
-  const endIndex =
-    queryIndex >= 0 && hashIndex >= 0
-      ? Math.min(queryIndex, hashIndex)
-      : queryIndex >= 0
-        ? queryIndex
-        : hashIndex;
-  return endIndex >= 0 ? src.slice(0, endIndex) : src;
+  const beforeHash = hashIndex >= 0 ? src.slice(0, hashIndex) : src;
+  const queryIndex = beforeHash.indexOf('?');
+
+  return {
+    normalizedSrc:
+      queryIndex >= 0 ? beforeHash.slice(0, queryIndex) : beforeHash,
+    fragment: hashIndex >= 0 ? src.slice(hashIndex + 1) : undefined
+  };
+}
+
+function restoreSvgFragment(
+  uri: vscode.Uri,
+  fragment?: string
+): vscode.Uri {
+  if (!fragment || path.extname(uri.fsPath || uri.path).toLowerCase() !== '.svg') {
+    return uri;
+  }
+  return uri.with({ fragment });
 }
 
 export function resolveImageUri(source: vscode.Uri, src: string): vscode.Uri | undefined {
-  const normalizedSrc = stripLocalImageUrlDecoration(src);
+  const { normalizedSrc, fragment } = stripLocalImageUrlDecoration(src);
   if (
     !normalizedSrc ||
     isHttpUrl(normalizedSrc) ||
@@ -101,13 +114,15 @@ export function resolveImageUri(source: vscode.Uri, src: string): vscode.Uri | u
   const sourceFolder = vscode.workspace.getWorkspaceFolder(source);
   if (/^file:/i.test(normalizedSrc)) {
     const parsed = vscode.Uri.parse(normalizedSrc, true);
-    if (!sourceFolder) return parsed;
-    return isWithinWorkspace(parsed, sourceFolder.uri) ? parsed : undefined;
+    const resolved = restoreSvgFragment(parsed, fragment);
+    if (!sourceFolder) return resolved;
+    return isWithinWorkspace(parsed, sourceFolder.uri) ? resolved : undefined;
   }
-  const resolved = vscode.Uri.joinPath(
+  const resolvedBase = vscode.Uri.joinPath(
     source.with({ path: path.posix.dirname(source.path) }),
     normalizedSrc
   );
+  const resolved = restoreSvgFragment(resolvedBase, fragment);
   if (!sourceFolder) return resolved;
-  return isWithinWorkspace(resolved, sourceFolder.uri) ? resolved : undefined;
+  return isWithinWorkspace(resolvedBase, sourceFolder.uri) ? resolved : undefined;
 }

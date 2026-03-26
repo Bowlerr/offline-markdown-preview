@@ -245,6 +245,7 @@ function createPreviewPanelTestContext(options: {
   };
 
   const fsMock = {
+    stat: vi.fn().mockResolvedValue({ size: 1024 }),
     readFile: vi
       .fn()
       .mockResolvedValue(options.baseCssText ?? 'body { color: black; }')
@@ -723,6 +724,26 @@ describe('PreviewController custom CSS', () => {
     expect(html).toContain(
       '<img src="https://cdn.example.com/demo.gif" data-remote-src="hero" alt="demo" />'
     );
+  });
+
+  it('preserves SVG fragments when embedding local images for export', async () => {
+    const { fsMock, module } = await loadPreviewPanelTestModule({
+      workspaceFolderPaths: ['/workspace-a']
+    });
+
+    fsMock.readFile.mockResolvedValueOnce(Buffer.from('<svg />'));
+
+    const controller = new module.PreviewController({
+      extensionUri: Uri.file('/extension'),
+      globalStorageUri: Uri.file('/global-storage')
+    } as any);
+
+    const html = await (controller as any).embedLocalImages(
+      '<p><img data-omv-local-src="file:///workspace-a/images/icons.svg#logo" src="file:///workspace-a/images/icons.svg#logo" /></p>',
+      24
+    );
+
+    expect(html).toContain('src="data:image/svg+xml;base64,PHN2ZyAvPg==#logo"');
   });
 
   it('hydrates new webviews with the saved preview UI toggle state', async () => {

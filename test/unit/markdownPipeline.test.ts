@@ -212,6 +212,33 @@ describe('markdownPipeline', () => {
     );
   });
 
+  it('preserves SVG fragments when rewriting local raw HTML img tags', () => {
+    const sourceUri = Uri.file('/workspace/docs/readme.md');
+    const webview = {
+      asWebviewUri(uri: { toString(): string }) {
+        return { toString: () => `vscode-webview://${uri.toString()}` };
+      }
+    };
+
+    const result = renderMarkdown(
+      '<img src="images/icons.svg?v=1#logo" alt="demo" />',
+      {
+        sourceUri,
+        webview: webview as any,
+        allowHtml: true,
+        allowRemoteImages: false,
+        maxImageMB: 100
+      }
+    );
+
+    expect(result.html).toContain(
+      'src="vscode-webview://file:///workspace/docs/images/icons.svg#logo"'
+    );
+    expect(result.html).toContain(
+      'data-omv-local-src="file:///workspace/docs/images/icons.svg#logo"'
+    );
+  });
+
   it('rewrites raw HTML img tags that rely on srcset alone', () => {
     const sourceUri = Uri.file('/workspace/docs/readme.md');
     const webview = {

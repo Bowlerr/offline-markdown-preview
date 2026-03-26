@@ -42,4 +42,18 @@ describe('linkResolver', () => {
       )?.toString()
     ).toBe('file:///workspace/docs/demo@2x.gif');
   });
+
+  it('preserves SVG fragments in resolved local image URIs', () => {
+    const source = Uri.file('/workspace/docs/a.md');
+
+    expect(
+      api.resolveImageUri(source as any, './icons.svg?v=1#logo')?.toString()
+    ).toBe('file:///workspace/docs/icons.svg#logo');
+    expect(
+      api.resolveImageUri(
+        source as any,
+        'file:///workspace/docs/icons.svg?cache=1#logo'
+      )?.toString()
+    ).toBe('file:///workspace/docs/icons.svg#logo');
+  });
 });
