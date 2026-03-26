@@ -48,6 +48,7 @@ function createPreviewPanelTestContext(options: {
   workspaceFolderPaths: string[];
   workspaceFilePath?: string;
   activeEditorPath?: string;
+  activeEditorLanguageId?: string;
   quickPickLabel?: string;
   openDialogPath?: string;
   customCssUris?: InstanceType<typeof Uri>[];
@@ -78,7 +79,7 @@ function createPreviewPanelTestContext(options: {
   const activeTextEditor = options.activeEditorPath
     ? {
         document: {
-          languageId: 'markdown',
+          languageId: options.activeEditorLanguageId ?? 'markdown',
           uri: Uri.file(options.activeEditorPath),
           lineCount: 1
         },
@@ -289,6 +290,41 @@ describe('PreviewController custom CSS', () => {
       undefined,
       vscodeMock.ConfigurationTarget.WorkspaceFolder
     );
+  });
+
+  it('scopes folder custom CSS to the active non-markdown editor folder', async () => {
+    const { module, update, vscodeMock } = await loadPreviewPanelTestModule({
+      workspaceFolderPaths: ['/workspace-root/workspace-a', '/workspace-root/workspace-b'],
+      workspaceFilePath: '/workspace-root/demo.code-workspace',
+      activeEditorPath: '/workspace-root/workspace-b/notes.txt',
+      activeEditorLanguageId: 'plaintext',
+      quickPickLabel: 'Set Folder Custom CSS',
+      openDialogPath: '/workspace-root/workspace-b/styles/preview.css'
+    });
+
+    const controller = new module.PreviewController({
+      extensionUri: Uri.file('/extension'),
+      globalStorageUri: Uri.file('/global-storage')
+    } as any);
+
+    (controller as any).currentEditor = {
+      document: {
+        languageId: 'markdown',
+        uri: Uri.file('/workspace-root/workspace-a/doc.md'),
+        lineCount: 1,
+        version: 1,
+        getText: () => '# Doc'
+      }
+    };
+
+    await controller.configureCustomCss();
+
+    expect(update).toHaveBeenCalledWith(
+      'preview.customCssPath',
+      'styles/preview.css',
+      vscodeMock.ConfigurationTarget.WorkspaceFolder
+    );
+    expect(vscodeMock.window.showWarningMessage).not.toHaveBeenCalled();
   });
 
   it('refreshes custom CSS immediately when the stylesheet is closed', async () => {

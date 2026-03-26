@@ -550,14 +550,12 @@ export class PreviewController implements vscode.Disposable {
   }
 
   async configureCustomCss(): Promise<void> {
-    const editor =
-      this.currentEditor?.document.languageId === 'markdown'
-        ? this.currentEditor
-        : vscode.window.activeTextEditor;
+    const activeEditor = vscode.window.activeTextEditor;
     const resource =
-      editor?.document.languageId === 'markdown'
-        ? editor.document.uri
-        : undefined;
+      activeEditor?.document.uri ??
+      (this.currentEditor?.document.languageId === 'markdown'
+        ? this.currentEditor.document.uri
+        : undefined);
     const workspaceFolder = resource
       ? vscode.workspace.getWorkspaceFolder(resource)
       : undefined;
