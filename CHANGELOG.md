@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- Add `offlineMarkdownViewer.preview.globalCustomCssPath` for user-level preview styling and compose it with workspace-level `preview.customCssPath`
+- Add an `Offline Markdown Preview: Set Custom CSS` command to pick or clear global/workspace preview styles from the Command Palette
+
 ## 0.1.0
 
 - Initial release

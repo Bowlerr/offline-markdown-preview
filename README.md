@@ -84,8 +84,19 @@ These VS Code settings control rendering, safety, and performance:
 - `offlineMarkdownViewer.preview.maxImageMB` (default: `8`): maximum local image size loaded into preview.
 - `offlineMarkdownViewer.export.embedImages` (default: `false`): embed local images as data URIs for HTML export (privacy warning shown).
 - `offlineMarkdownViewer.performance.debounceMs` (default: `120`): debounce delay for live preview updates.
-- `offlineMarkdownViewer.preview.customCssPath` (default: `""`): workspace-local CSS file appended to preview output.
+- `offlineMarkdownViewer.preview.globalCustomCssPath` (default: `""`): absolute path to a user-level `.css` file appended to every preview.
+- `offlineMarkdownViewer.preview.customCssPath` (default: `""`): workspace-relative `.css` file appended after the global stylesheet. Set this in workspace or folder settings to override the global baseline for a repo.
 - `offlineMarkdownViewer.preview.showFrontmatter` (default: `false`): show parsed YAML frontmatter above the rendered document.
+
+## Custom CSS
+
+Use `offlineMarkdownViewer.preview.globalCustomCssPath` in user settings to apply a stylesheet everywhere, then optionally layer `offlineMarkdownViewer.preview.customCssPath` in a workspace for repo-specific tweaks.
+
+If both are set, the global stylesheet is injected first and the workspace stylesheet is injected second, so workspace rules win on conflicts.
+
+You can also run **Offline Markdown Preview: Set Custom CSS** from the Command Palette to pick a global or workspace stylesheet without editing settings JSON manually.
+
+For a full setup guide, example CSS, and GitHub-style walkthrough, see [docs/custom-css/README.md](docs/custom-css/README.md).
 
 ## Commands
 
@@ -95,6 +106,7 @@ These VS Code settings control rendering, safety, and performance:
 | `Offline Markdown Preview: Open Preview To Side`          | Open the preview beside the active editor        |
 | `Offline Markdown Preview: Export HTML`                   | Export the current preview/document as HTML      |
 | `Offline Markdown Preview: Export PDF`                    | Export the current preview/document as PDF       |
+| `Offline Markdown Preview: Set Custom CSS`                | Pick or clear a global/workspace custom CSS file |
 | `Offline Markdown Preview: Show Remote Image Cache Usage` | Show current remote-image cache size/file counts |
 | `Offline Markdown Preview: Clear Remote Image Cache`      | Delete cached remote images used by preview      |
 | `Offline Markdown Preview: Toggle Scroll Sync`            | Enable/disable editor <-> preview scroll sync    |
@@ -125,7 +137,7 @@ Preview-local shortcuts (when focus is inside the preview webview):
 - **Sanitization can be disabled** for advanced cases, but this is unsafe for untrusted Markdown/HTML content.
 - **Paths outside the workspace may be blocked** for preview safety when resolving local resources.
 - **Large images are capped** by `offlineMarkdownViewer.preview.maxImageMB` to avoid excessive memory usage in preview.
-- **Custom CSS must be workspace-local** and `.css` only; user/global settings are ignored for safety.
+- **Custom CSS supports two scopes**: `offlineMarkdownViewer.preview.globalCustomCssPath` accepts an explicitly configured absolute `.css` file from user settings, while `offlineMarkdownViewer.preview.customCssPath` accepts only workspace- or folder-local `.css` files. When both are set, workspace or folder CSS is applied after the global stylesheet and takes precedence.
 - **PDF export behavior depends on the VS Code/webview print route** and may vary slightly by platform.
 
 ## Troubleshooting
@@ -134,7 +146,7 @@ Preview-local shortcuts (when focus is inside the preview webview):
 - **Math not rendering**: verify `offlineMarkdownViewer.enableMath` is enabled; invalid expressions render as plain text fallback.
 - **Images missing**: check workspace path restrictions and `offlineMarkdownViewer.preview.maxImageMB` for large local images.
 - **Downloaded remote images not showing**: run **Show Remote Image Cache Usage** and verify cache directories exist/readable, then retry or clear cache.
-- **Custom CSS not applied**: ensure the path is workspace-local, ends with `.css`, and is set in workspace settings (not user settings).
+- **Custom CSS not applied**: ensure `offlineMarkdownViewer.preview.globalCustomCssPath` points to an absolute `.css` file you explicitly opted into in user settings, or `offlineMarkdownViewer.preview.customCssPath` points to a workspace- or folder-local `.css` file. Workspace/folder CSS overrides global CSS on conflicts.
 - **External links are blocked/prompting**: this is expected; review `offlineMarkdownViewer.externalLinks.confirm` and use explicit link opens.
 
 ## Changelog

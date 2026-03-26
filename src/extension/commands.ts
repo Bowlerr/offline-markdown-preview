@@ -9,15 +9,40 @@ export function registerCommands(
 ): vscode.Disposable[] {
   const commands: Array<[string, (...args: unknown[]) => unknown]> = [
     ['offlineMarkdownViewer.openPreview', () => controller.openPreview(false)],
-    ['offlineMarkdownViewer.openPreviewToSide', () => controller.openPreview(true)],
+    [
+      'offlineMarkdownViewer.openPreviewToSide',
+      () => controller.openPreview(true)
+    ],
     ['offlineMarkdownViewer.exportHtml', () => controller.exportHtml()],
     ['offlineMarkdownViewer.exportPdf', () => controller.exportPdf()],
-    ['offlineMarkdownViewer.showRemoteImageCacheUsage', () => controller.showRemoteImageCacheUsage()],
-    ['offlineMarkdownViewer.clearRemoteImageCache', () => controller.clearRemoteImageCache()],
-    ['offlineMarkdownViewer.toggleScrollSync', () => controller.toggleScrollSync()],
-    ['offlineMarkdownViewer.copyHeadingLink', (item?: TocItem) => controller.copyHeadingLink(item)],
-    ['offlineMarkdownViewer.revealHeading', (item: TocItem) => controller.revealHeadingItem(item)],
-    ['offlineMarkdownViewer.quickPickHeading', () => controller.quickPickHeading()]
+    [
+      'offlineMarkdownViewer.configureCustomCss',
+      () => controller.configureCustomCss()
+    ],
+    [
+      'offlineMarkdownViewer.showRemoteImageCacheUsage',
+      () => controller.showRemoteImageCacheUsage()
+    ],
+    [
+      'offlineMarkdownViewer.clearRemoteImageCache',
+      () => controller.clearRemoteImageCache()
+    ],
+    [
+      'offlineMarkdownViewer.toggleScrollSync',
+      () => controller.toggleScrollSync()
+    ],
+    [
+      'offlineMarkdownViewer.copyHeadingLink',
+      (item?: TocItem) => controller.copyHeadingLink(item)
+    ],
+    [
+      'offlineMarkdownViewer.revealHeading',
+      (item: TocItem) => controller.revealHeadingItem(item)
+    ],
+    [
+      'offlineMarkdownViewer.quickPickHeading',
+      () => controller.quickPickHeading()
+    ]
   ];
 
   return commands.map(([id, handler]) => {

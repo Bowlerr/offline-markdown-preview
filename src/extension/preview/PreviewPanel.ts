@@ -22,8 +22,10 @@ import {
   buildWebviewCsp,
   confirmSanitizeDisabled,
   createNonce,
-  getWorkspaceCustomCss,
-  inlineCssTag
+  getConfiguredCustomCssUris,
+  getWorkspaceCustomCssBaseUri,
+  inlineCssTag,
+  resolveCustomCss
 } from './markdown/security';
 
 interface PreviewPanelState {
@@ -45,8 +47,20 @@ interface RuntimeSettings {
   debounceMs: number;
 }
 
+interface CustomCssCommandChoice {
+  label: string;
+  description: string;
+  settingKey: 'preview.globalCustomCssPath' | 'preview.customCssPath';
+  target: vscode.ConfigurationTarget;
+  workspaceFolder?: vscode.WorkspaceFolder;
+  clear?: boolean;
+}
+
 function getSettings(resource?: vscode.Uri): RuntimeSettings {
-  const cfg = vscode.workspace.getConfiguration('offlineMarkdownViewer', resource);
+  const cfg = vscode.workspace.getConfiguration(
+    'offlineMarkdownViewer',
+    resource
+  );
   return {
     enableMermaid: cfg.get<boolean>('enableMermaid', true),
     enableMath: cfg.get<boolean>('enableMath', true),
@@ -62,10 +76,38 @@ function getSettings(resource?: vscode.Uri): RuntimeSettings {
   };
 }
 
+function getCssFilePickerOptions(
+  defaultUri?: vscode.Uri
+): vscode.OpenDialogOptions {
+  return {
+    canSelectFiles: true,
+    canSelectFolders: false,
+    canSelectMany: false,
+    openLabel: 'Select CSS File',
+    filters: {
+      'CSS Files': ['css']
+    },
+    defaultUri
+  };
+}
+
+function isUriWithinFolder(
+  uri: vscode.Uri,
+  folder: vscode.WorkspaceFolder
+): boolean {
+  const relative = path.relative(folder.uri.fsPath, uri.fsPath);
+  return (
+    relative === '' ||
+    (!relative.startsWith('..') && !path.isAbsolute(relative))
+  );
+}
+
 export class MarkdownOutlineProvider
   implements vscode.TreeDataProvider<TocItem>, vscode.Disposable
 {
-  private readonly _onDidChangeTreeData = new vscode.EventEmitter<TocItem | undefined>();
+  private readonly _onDidChangeTreeData = new vscode.EventEmitter<
+    TocItem | undefined
+  >();
   readonly onDidChangeTreeData = this._onDidChangeTreeData.event;
   private toc: readonly TocItem[] = [];
 
@@ -75,7 +117,10 @@ export class MarkdownOutlineProvider
   }
 
   getTreeItem(element: TocItem): vscode.TreeItem {
-    const item = new vscode.TreeItem(element.text, vscode.TreeItemCollapsibleState.None);
+    const item = new vscode.TreeItem(
+      element.text,
+      vscode.TreeItemCollapsibleState.None
+    );
     item.id = element.id;
     item.description = `L${element.line + 1}`;
     item.command = {
@@ -111,6 +156,9 @@ export class PreviewController implements vscode.Disposable {
   private preferredMarkdownColumn: vscode.ViewColumn | undefined;
   private lastPreviewColumn: vscode.ViewColumn | undefined;
   private webviewAllowsRemoteImages: boolean | undefined;
+  private webviewCustomCssDirty = true;
+  private webviewCustomCssKey: string | undefined;
+  private webviewCustomCssTexts: string[] | undefined;
   private readonly remoteImageOverrides = new Map<string, vscode.Uri>();
   private htmlExportSnapshotReqId = 0;
   private pendingHtmlExportSnapshot:
@@ -120,17 +168,37 @@ export class PreviewController implements vscode.Disposable {
         timer: NodeJS.Timeout;
       }
     | undefined;
-  private readonly outlineEmitter = new vscode.EventEmitter<readonly TocItem[]>();
+  private readonly outlineEmitter = new vscode.EventEmitter<
+    readonly TocItem[]
+  >();
 
   readonly onOutlineChanged = this.outlineEmitter.event;
 
   constructor(private readonly context: vscode.ExtensionContext) {
     this.disposables.push(
       vscode.workspace.onDidChangeTextDocument((e) => {
-        if (!this.currentEditor || e.document.uri.toString() !== this.currentEditor.document.uri.toString()) {
+        if (!this.currentEditor) {
           return;
         }
-        this.scheduleRender();
+
+        if (
+          e.document.uri.toString() ===
+          this.currentEditor.document.uri.toString()
+        ) {
+          this.scheduleRender();
+          return;
+        }
+
+        if (this.isCurrentCustomCssUri(e.document.uri)) {
+          this.webviewCustomCssDirty = true;
+          void this.refreshCustomCssOnly();
+        }
+      }),
+      vscode.workspace.onDidSaveTextDocument((document) => {
+        if (this.isCurrentCustomCssUri(document.uri)) {
+          this.webviewCustomCssDirty = true;
+          void this.refreshCustomCssOnly();
+        }
       }),
       vscode.window.onDidChangeActiveTextEditor((editor) => {
         if (editor?.document.languageId === 'markdown') {
@@ -139,7 +207,8 @@ export class PreviewController implements vscode.Disposable {
             return;
           }
 
-          const previewColumn = this.panel?.viewColumn ?? this.lastPreviewColumn;
+          const previewColumn =
+            this.panel?.viewColumn ?? this.lastPreviewColumn;
           const editorColumn = editor.viewColumn;
           if (
             previewColumn &&
@@ -153,19 +222,34 @@ export class PreviewController implements vscode.Disposable {
           }
 
           this.currentEditor = editor;
+          this.webviewCustomCssDirty = true;
           if (editorColumn && editorColumn !== previewColumn) {
             this.preferredMarkdownColumn = editorColumn;
           }
           void this.tryAutoOpenPreview(editor);
-          if (this.panel && this.followActiveMarkdownBeside && this.panel.visible) {
+          if (
+            this.panel &&
+            this.followActiveMarkdownBeside &&
+            this.panel.visible
+          ) {
             // Keep preview open without relocating it to a new group on every file switch.
-            this.panel.reveal(this.panel.viewColumn ?? this.lastPreviewColumn ?? vscode.ViewColumn.Beside, true);
+            this.panel.reveal(
+              this.panel.viewColumn ??
+                this.lastPreviewColumn ??
+                vscode.ViewColumn.Beside,
+              true
+            );
           }
           // File switches should feel instant; debounce is still used for document edits.
           this.scheduleRender(true);
         }
       }),
       vscode.workspace.onDidCloseTextDocument((document) => {
+        if (this.isCurrentCustomCssUri(document.uri)) {
+          this.webviewCustomCssDirty = true;
+          void this.refreshCustomCssOnly();
+        }
+
         if (document.languageId !== 'markdown') return;
         if (!this.panel) return;
         const previewUri = this.state.snapshot?.uri.toString();
@@ -181,11 +265,18 @@ export class PreviewController implements vscode.Disposable {
       }),
       vscode.window.onDidChangeTextEditorVisibleRanges((e) => {
         if (!this.panel || !this.currentEditor) return;
-        if (e.textEditor.document.uri.toString() !== this.currentEditor.document.uri.toString()) return;
+        if (
+          e.textEditor.document.uri.toString() !==
+          this.currentEditor.document.uri.toString()
+        )
+          return;
         const settings = getSettings(this.currentEditor.document.uri);
         if (!settings.scrollSync) return;
         if (Date.now() < this.suppressEditorScrollUntil) return;
-        const lineCount = Math.max(1, this.currentEditor.document.lineCount - 1);
+        const lineCount = Math.max(
+          1,
+          this.currentEditor.document.lineCount - 1
+        );
         const topLine = e.visibleRanges[0]?.start.line ?? 0;
         this.postMessage({
           type: 'editorScroll',
@@ -196,6 +287,18 @@ export class PreviewController implements vscode.Disposable {
       }),
       vscode.workspace.onDidChangeConfiguration((e) => {
         if (e.affectsConfiguration('offlineMarkdownViewer')) {
+          if (
+            this.currentEditor &&
+            (e.affectsConfiguration(
+              'offlineMarkdownViewer.preview.globalCustomCssPath'
+            ) ||
+              e.affectsConfiguration(
+                'offlineMarkdownViewer.preview.customCssPath',
+                this.currentEditor.document.uri
+              ))
+          ) {
+            this.webviewCustomCssDirty = true;
+          }
           if (
             this.currentEditor &&
             this.currentEditor.document.languageId === 'markdown' &&
@@ -226,16 +329,20 @@ export class PreviewController implements vscode.Disposable {
         ? sourceEditor
         : vscode.window.activeTextEditor;
     if (!editor || editor.document.languageId !== 'markdown') {
-      void vscode.window.showInformationMessage('Open a Markdown file to preview.');
+      void vscode.window.showInformationMessage(
+        'Open a Markdown file to preview.'
+      );
       return;
     }
 
     this.currentEditor = editor;
     this.followActiveMarkdownBeside = sideBySide;
+    this.webviewCustomCssDirty = true;
 
     if (this.panel) {
       try {
-        const revealColumn = this.panel.viewColumn ?? targetColumn ?? this.lastPreviewColumn;
+        const revealColumn =
+          this.panel.viewColumn ?? targetColumn ?? this.lastPreviewColumn;
         this.panel.reveal(revealColumn, preserveFocus);
         this.lastPreviewColumn = this.panel.viewColumn ?? revealColumn;
         await this.renderNow();
@@ -248,7 +355,9 @@ export class PreviewController implements vscode.Disposable {
       }
     }
 
-    const initialColumn = targetColumn ?? (sideBySide ? vscode.ViewColumn.Beside : vscode.ViewColumn.Active);
+    const initialColumn =
+      targetColumn ??
+      (sideBySide ? vscode.ViewColumn.Beside : vscode.ViewColumn.Active);
     this.panel = vscode.window.createWebviewPanel(
       'offlineMarkdownViewer.preview',
       `Offline Preview: ${path.basename(editor.document.uri.fsPath)}`,
@@ -266,18 +375,31 @@ export class PreviewController implements vscode.Disposable {
     );
 
     const settings = getSettings(editor.document.uri);
-    this.panel.webview.html = await this.buildWebviewHtml(this.panel.webview, editor.document.uri, settings);
+    const customCss = await resolveCustomCss(editor.document.uri);
+    this.panel.webview.html = await this.buildWebviewHtml(
+      this.panel.webview,
+      settings,
+      customCss.cssTexts
+    );
     this.webviewAllowsRemoteImages = settings.allowRemoteImages;
+    this.webviewCustomCssDirty = false;
+    this.webviewCustomCssKey = customCss.key;
+    this.webviewCustomCssTexts = customCss.cssTexts;
     this.disposables.push(
       this.panel,
       this.panel.onDidDispose(() => {
-        this.lastPreviewColumn = this.panel?.viewColumn ?? this.lastPreviewColumn;
+        this.lastPreviewColumn =
+          this.panel?.viewColumn ?? this.lastPreviewColumn;
         this.panel = undefined;
         this.webviewAllowsRemoteImages = undefined;
+        this.webviewCustomCssDirty = true;
+        this.webviewCustomCssKey = undefined;
+        this.webviewCustomCssTexts = undefined;
         this.remoteImageOverrides.clear();
       }),
       this.panel.onDidChangeViewState((event) => {
-        this.lastPreviewColumn = event.webviewPanel.viewColumn ?? this.lastPreviewColumn;
+        this.lastPreviewColumn =
+          event.webviewPanel.viewColumn ?? this.lastPreviewColumn;
       }),
       this.panel.webview.onDidReceiveMessage((msg: unknown) => {
         void this.handleWebviewMessage(msg);
@@ -287,7 +409,11 @@ export class PreviewController implements vscode.Disposable {
     this.lastPreviewColumn = this.panel.viewColumn ?? initialColumn;
     await this.renderNow();
     if (preserveFocus) {
-      await vscode.window.showTextDocument(editor.document, editor.viewColumn, false);
+      await vscode.window.showTextDocument(
+        editor.document,
+        editor.viewColumn,
+        false
+      );
     }
   }
 
@@ -303,7 +429,8 @@ export class PreviewController implements vscode.Disposable {
     if (!snapshot) return;
 
     const settings = getSettings(snapshot.uri);
-    let html = (await this.requestRenderedHtmlExportSnapshot()) ?? snapshot.html;
+    let html =
+      (await this.requestRenderedHtmlExportSnapshot()) ?? snapshot.html;
     html = this.rewriteLocalImageSourcesForExport(html);
     if (settings.embedImages) {
       const answer = await vscode.window.showWarningMessage(
@@ -315,7 +442,9 @@ export class PreviewController implements vscode.Disposable {
       html = await this.embedLocalImages(html, settings.maxImageMB);
     }
 
-    const defaultUri = snapshot.uri.with({ path: snapshot.uri.path.replace(/\.md$/i, '.html') });
+    const defaultUri = snapshot.uri.with({
+      path: snapshot.uri.path.replace(/\.md$/i, '.html')
+    });
     const target = await vscode.window.showSaveDialog({
       defaultUri,
       filters: { HTML: ['html'] },
@@ -323,9 +452,15 @@ export class PreviewController implements vscode.Disposable {
     });
     if (!target) return;
 
-    const document = await this.buildStandaloneHtml(html, snapshot.uri, settings);
+    const document = await this.buildStandaloneHtml(
+      html,
+      snapshot.uri,
+      settings
+    );
     await vscode.workspace.fs.writeFile(target, Buffer.from(document, 'utf8'));
-    void vscode.window.showInformationMessage(`Exported HTML to ${target.fsPath}`);
+    void vscode.window.showInformationMessage(
+      `Exported HTML to ${target.fsPath}`
+    );
   }
 
   async exportPdf(): Promise<void> {
@@ -340,7 +475,8 @@ export class PreviewController implements vscode.Disposable {
     if (!snapshot) return;
 
     const settings = getSettings(snapshot.uri);
-    let html = (await this.requestRenderedHtmlExportSnapshot()) ?? snapshot.html;
+    let html =
+      (await this.requestRenderedHtmlExportSnapshot()) ?? snapshot.html;
     html = this.rewriteLocalImageSourcesForExport(html);
 
     if (settings.embedImages) {
@@ -353,7 +489,9 @@ export class PreviewController implements vscode.Disposable {
       html = await this.embedLocalImages(html, settings.maxImageMB);
     }
 
-    const defaultUri = snapshot.uri.with({ path: snapshot.uri.path.replace(/\.md$/i, '.pdf') });
+    const defaultUri = snapshot.uri.with({
+      path: snapshot.uri.path.replace(/\.md$/i, '.pdf')
+    });
     const target = await vscode.window.showSaveDialog({
       defaultUri,
       filters: { PDF: ['pdf'] },
@@ -361,13 +499,25 @@ export class PreviewController implements vscode.Disposable {
     });
     if (!target) return;
 
-    const document = await this.buildStandaloneHtml(html, snapshot.uri, settings);
+    const document = await this.buildStandaloneHtml(
+      html,
+      snapshot.uri,
+      settings
+    );
     const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'omv-pdf-'));
-    const tempHtmlPath = path.join(tempDir, `${path.basename(snapshot.uri.fsPath).replace(/\.md$/i, '')}.print.html`);
+    const tempHtmlPath = path.join(
+      tempDir,
+      `${path.basename(snapshot.uri.fsPath).replace(/\.md$/i, '')}.print.html`
+    );
     await fs.writeFile(tempHtmlPath, document, 'utf8');
-    const pdfExport = await this.tryHeadlessPdfExport(vscode.Uri.file(tempHtmlPath), target);
+    const pdfExport = await this.tryHeadlessPdfExport(
+      vscode.Uri.file(tempHtmlPath),
+      target
+    );
     if (pdfExport.ok) {
-      void vscode.window.showInformationMessage(`Exported PDF to ${target.fsPath}`);
+      void vscode.window.showInformationMessage(
+        `Exported PDF to ${target.fsPath}`
+      );
       return;
     }
 
@@ -379,15 +529,222 @@ export class PreviewController implements vscode.Disposable {
 
   async toggleScrollSync(): Promise<void> {
     const editor = this.currentEditor;
-    const cfg = vscode.workspace.getConfiguration('offlineMarkdownViewer', editor?.document.uri);
+    const cfg = vscode.workspace.getConfiguration(
+      'offlineMarkdownViewer',
+      editor?.document.uri
+    );
     const current = cfg.get<boolean>('scrollSync', true);
-    const hasFolder = editor ? Boolean(vscode.workspace.getWorkspaceFolder(editor.document.uri)) : false;
+    const hasFolder = editor
+      ? Boolean(vscode.workspace.getWorkspaceFolder(editor.document.uri))
+      : false;
     await cfg.update(
       'scrollSync',
       !current,
-      hasFolder ? vscode.ConfigurationTarget.WorkspaceFolder : vscode.ConfigurationTarget.Workspace
+      hasFolder
+        ? vscode.ConfigurationTarget.WorkspaceFolder
+        : vscode.ConfigurationTarget.Workspace
     );
-    void vscode.window.showInformationMessage(`Offline Markdown Viewer scroll sync: ${!current ? 'On' : 'Off'}`);
+    void vscode.window.showInformationMessage(
+      `Offline Markdown Viewer scroll sync: ${!current ? 'On' : 'Off'}`
+    );
+  }
+
+  async configureCustomCss(): Promise<void> {
+    const activeEditor = vscode.window.activeTextEditor;
+    const resource =
+      activeEditor?.document.uri ??
+      (this.currentEditor?.document.languageId === 'markdown'
+        ? this.currentEditor.document.uri
+        : undefined);
+    const workspaceFolder = resource
+      ? vscode.workspace.getWorkspaceFolder(resource)
+      : undefined;
+    const workspaceFolderCount = vscode.workspace.workspaceFolders?.length ?? 0;
+    const workspaceCustomCssBaseUri = getWorkspaceCustomCssBaseUri();
+    const cfg = vscode.workspace.getConfiguration(
+      'offlineMarkdownViewer',
+      resource
+    );
+
+    const choices: CustomCssCommandChoice[] = [
+      {
+        label: 'Set Global Custom CSS',
+        description: 'Choose a user-level .css file applied to every preview',
+        settingKey: 'preview.globalCustomCssPath',
+        target: vscode.ConfigurationTarget.Global
+      },
+      {
+        label: 'Clear Global Custom CSS',
+        description: 'Remove the user-level stylesheet',
+        settingKey: 'preview.globalCustomCssPath',
+        target: vscode.ConfigurationTarget.Global,
+        clear: true
+      }
+    ];
+
+    if (workspaceFolderCount > 0 && workspaceCustomCssBaseUri) {
+      choices.push(
+        {
+          label: 'Set Workspace Custom CSS',
+          description:
+            'Choose a workspace-level .css path applied across the workspace',
+          settingKey: 'preview.customCssPath',
+          target: vscode.ConfigurationTarget.Workspace
+        },
+        {
+          label: 'Clear Workspace Custom CSS',
+          description: 'Remove the workspace-level stylesheet path',
+          settingKey: 'preview.customCssPath',
+          target: vscode.ConfigurationTarget.Workspace,
+          clear: true
+        }
+      );
+    }
+
+    if (workspaceFolder) {
+      choices.push({
+        label: 'Set Folder Custom CSS',
+        description: `Choose a folder-level .css file for ${workspaceFolder.name}`,
+        settingKey: 'preview.customCssPath',
+        target: vscode.ConfigurationTarget.WorkspaceFolder,
+        workspaceFolder
+      });
+      choices.push({
+        label: 'Clear Folder Custom CSS',
+        description:
+          `Remove the folder-level stylesheet for ${workspaceFolder.name}`,
+        settingKey: 'preview.customCssPath',
+        target: vscode.ConfigurationTarget.WorkspaceFolder,
+        workspaceFolder,
+        clear: true
+      });
+    }
+
+    const picked = await vscode.window.showQuickPick(choices, {
+      placeHolder: 'Choose which custom CSS setting to configure'
+    });
+    if (!picked) return;
+
+    if (
+      picked.target === vscode.ConfigurationTarget.WorkspaceFolder &&
+      !workspaceFolder
+    ) {
+      void vscode.window.showInformationMessage(
+        'Open a Markdown file inside a workspace folder to configure folder custom CSS.'
+      );
+      return;
+    }
+
+    if (picked.clear) {
+      await cfg.update(picked.settingKey, undefined, picked.target);
+      void vscode.window.showInformationMessage(
+        picked.settingKey === 'preview.globalCustomCssPath'
+          ? 'Cleared global custom CSS.'
+          : picked.target === vscode.ConfigurationTarget.Workspace
+            ? 'Cleared workspace custom CSS.'
+            : 'Cleared folder custom CSS.'
+      );
+      return;
+    }
+
+    const defaultWorkspaceUri =
+      picked.target === vscode.ConfigurationTarget.Workspace
+        ? workspaceCustomCssBaseUri
+        : picked.workspaceFolder?.uri ?? workspaceFolder?.uri ?? resource;
+    const defaultUri =
+      picked.settingKey === 'preview.globalCustomCssPath'
+        ? resource
+        : defaultWorkspaceUri;
+    const selection = await vscode.window.showOpenDialog(
+      getCssFilePickerOptions(defaultUri)
+    );
+    const cssUri = selection?.[0];
+    if (!cssUri) return;
+
+    if (path.extname(cssUri.fsPath).toLowerCase() !== '.css') {
+      void vscode.window.showWarningMessage(
+        'Select a .css file to configure custom preview styles.'
+      );
+      return;
+    }
+
+    if (picked.settingKey === 'preview.globalCustomCssPath') {
+      await cfg.update(
+        picked.settingKey,
+        cssUri.fsPath,
+        vscode.ConfigurationTarget.Global
+      );
+      void vscode.window.showInformationMessage(
+        `Global custom CSS set to ${path.basename(cssUri.fsPath)}`
+      );
+      return;
+    }
+
+    if (picked.target === vscode.ConfigurationTarget.Workspace) {
+      if (!workspaceCustomCssBaseUri) {
+        void vscode.window.showInformationMessage(
+          'Open a saved workspace or a single-folder workspace to configure workspace custom CSS.'
+        );
+        return;
+      }
+
+      if (!vscode.workspace.getWorkspaceFolder(cssUri)) {
+        void vscode.window.showInformationMessage(
+          'Select a .css file inside the current workspace to configure workspace custom CSS.'
+        );
+        return;
+      }
+
+      const relative = path.relative(
+        workspaceCustomCssBaseUri.fsPath,
+        cssUri.fsPath
+      );
+      if (path.isAbsolute(relative) || !relative.trim()) {
+        void vscode.window.showWarningMessage(
+          'Workspace custom CSS must point to a .css file inside the current workspace.'
+        );
+        return;
+      }
+
+      await cfg.update(
+        picked.settingKey,
+        relative.split(path.sep).join('/'),
+        picked.target
+      );
+      void vscode.window.showInformationMessage(
+        `Workspace custom CSS set to ${relative}`
+      );
+      return;
+    }
+
+    const folder = picked.workspaceFolder;
+    if (!folder) {
+      void vscode.window.showInformationMessage(
+        'Open a Markdown file inside a workspace folder to configure folder custom CSS.'
+      );
+      return;
+    }
+
+    if (!isUriWithinFolder(cssUri, folder)) {
+      void vscode.window.showWarningMessage(
+        'Folder custom CSS must point to a .css file inside the current workspace folder.'
+      );
+      return;
+    }
+
+    const relative = path.relative(folder.uri.fsPath, cssUri.fsPath);
+    await cfg.update(
+      picked.settingKey,
+      relative.split(path.sep).join('/'),
+      picked.target
+    );
+    void vscode.window.showInformationMessage(
+      `${
+        picked.target === vscode.ConfigurationTarget.Workspace
+          ? 'Workspace'
+          : 'Folder'
+      } custom CSS set to ${relative}`
+    );
   }
 
   async copyHeadingLink(item?: TocItem): Promise<void> {
@@ -403,7 +760,10 @@ export class PreviewController implements vscode.Disposable {
       void vscode.window.showInformationMessage('No heading found to copy.');
       return;
     }
-    const relative = vscode.workspace.asRelativePath(editor.document.uri, false);
+    const relative = vscode.workspace.asRelativePath(
+      editor.document.uri,
+      false
+    );
     const link = `${relative}#${heading.id}`;
     await vscode.env.clipboard.writeText(link);
     void vscode.window.showInformationMessage(`Copied heading link: ${link}`);
@@ -421,12 +781,21 @@ export class PreviewController implements vscode.Disposable {
       description: `Line ${t.line + 1}`,
       heading: t
     }));
-    const picked = await vscode.window.showQuickPick(items, { placeHolder: 'Jump to heading' });
+    const picked = await vscode.window.showQuickPick(items, {
+      placeHolder: 'Jump to heading'
+    });
     if (!picked) return;
     const pos = new vscode.Position(picked.heading.line, 0);
     editor.selection = new vscode.Selection(pos, pos);
-    await vscode.window.showTextDocument(editor.document, editor.viewColumn, false);
-    editor.revealRange(new vscode.Range(pos, pos), vscode.TextEditorRevealType.InCenter);
+    await vscode.window.showTextDocument(
+      editor.document,
+      editor.viewColumn,
+      false
+    );
+    editor.revealRange(
+      new vscode.Range(pos, pos),
+      vscode.TextEditorRevealType.InCenter
+    );
   }
 
   async showRemoteImageCacheUsage(): Promise<void> {
@@ -438,7 +807,10 @@ export class PreviewController implements vscode.Disposable {
 
     const locationSummary = usage.locations
       .filter((location) => location.exists && location.files > 0)
-      .map((location) => `${formatBytes(location.bytes)} in ${location.files} file(s) at ${location.label}`)
+      .map(
+        (location) =>
+          `${formatBytes(location.bytes)} in ${location.files} file(s) at ${location.label}`
+      )
       .join(' | ');
 
     void vscode.window.showInformationMessage(
@@ -449,7 +821,9 @@ export class PreviewController implements vscode.Disposable {
   async clearRemoteImageCache(): Promise<void> {
     const usage = await this.collectRemoteImageCacheUsage();
     if (usage.totalFiles === 0) {
-      void vscode.window.showInformationMessage('Remote image cache is already empty.');
+      void vscode.window.showInformationMessage(
+        'Remote image cache is already empty.'
+      );
       return;
     }
 
@@ -466,7 +840,10 @@ export class PreviewController implements vscode.Disposable {
     for (const location of usage.locations) {
       if (!location.exists) continue;
       try {
-        await vscode.workspace.fs.delete(location.uri, { recursive: true, useTrash: false });
+        await vscode.workspace.fs.delete(location.uri, {
+          recursive: true,
+          useTrash: false
+        });
         deletedLocations += 1;
       } catch {
         // Best-effort; keep clearing other locations.
@@ -493,7 +870,10 @@ export class PreviewController implements vscode.Disposable {
 
   getOutlineProvider(): MarkdownOutlineProvider {
     const provider = new MarkdownOutlineProvider();
-    this.disposables.push(this.onOutlineChanged((toc) => provider.setToc(toc)), provider);
+    this.disposables.push(
+      this.onOutlineChanged((toc) => provider.setToc(toc)),
+      provider
+    );
     return provider;
   }
 
@@ -521,7 +901,10 @@ export class PreviewController implements vscode.Disposable {
           viewColumn: this.preferredMarkdownColumn,
           preview: false
         });
-        await this.closeMarkdownTabsInColumn(editor.document.uri, previewColumn);
+        await this.closeMarkdownTabsInColumn(
+          editor.document.uri,
+          previewColumn
+        );
       }
       this.currentEditor = relocated;
       if (!this.panel) {
@@ -535,12 +918,20 @@ export class PreviewController implements vscode.Disposable {
     }
   }
 
-  private async closeMarkdownTabsInColumn(uri: vscode.Uri, column: vscode.ViewColumn): Promise<void> {
-    const targetGroup = vscode.window.tabGroups.all.find((group) => group.viewColumn === column);
+  private async closeMarkdownTabsInColumn(
+    uri: vscode.Uri,
+    column: vscode.ViewColumn
+  ): Promise<void> {
+    const targetGroup = vscode.window.tabGroups.all.find(
+      (group) => group.viewColumn === column
+    );
     if (!targetGroup) return;
 
     const tabsToClose = targetGroup.tabs.filter((tab) => {
-      return tab.input instanceof vscode.TabInputText && tab.input.uri.toString() === uri.toString();
+      return (
+        tab.input instanceof vscode.TabInputText &&
+        tab.input.uri.toString() === uri.toString()
+      );
     });
 
     if (tabsToClose.length === 0) return;
@@ -642,7 +1033,11 @@ export class PreviewController implements vscode.Disposable {
         break;
       }
       case 'previewScroll': {
-        if (!this.currentEditor || !getSettings(this.currentEditor.document.uri).scrollSync) return;
+        if (
+          !this.currentEditor ||
+          !getSettings(this.currentEditor.document.uri).scrollSync
+        )
+          return;
         const maxLine = Math.max(0, this.currentEditor.document.lineCount - 1);
         const line = Math.min(
           maxLine,
@@ -655,7 +1050,10 @@ export class PreviewController implements vscode.Disposable {
         );
         const pos = new vscode.Position(line, 0);
         this.suppressEditorScrollUntil = Date.now() + 250;
-        this.currentEditor.revealRange(new vscode.Range(pos, pos), vscode.TextEditorRevealType.AtTop);
+        this.currentEditor.revealRange(
+          new vscode.Range(pos, pos),
+          vscode.TextEditorRevealType.AtTop
+        );
         break;
       }
       case 'openLink': {
@@ -681,7 +1079,9 @@ export class PreviewController implements vscode.Disposable {
       }
       case 'pdfExportResult': {
         if (!message.ok && message.error) {
-          void vscode.window.showWarningMessage(`Preview print failed: ${message.error}`);
+          void vscode.window.showWarningMessage(
+            `Preview print failed: ${message.error}`
+          );
         }
         break;
       }
@@ -696,8 +1096,16 @@ export class PreviewController implements vscode.Disposable {
       case 'requestExport': {
         const picked = await vscode.window.showQuickPick(
           [
-            { label: 'HTML', description: 'Self-contained HTML export', value: 'html' as const },
-            { label: 'PDF', description: 'Open print dialog / Save as PDF', value: 'pdf' as const }
+            {
+              label: 'HTML',
+              description: 'Self-contained HTML export',
+              value: 'html' as const
+            },
+            {
+              label: 'PDF',
+              description: 'Open print dialog / Save as PDF',
+              value: 'pdf' as const
+            }
           ],
           { placeHolder: 'Export preview as…' }
         );
@@ -710,7 +1118,10 @@ export class PreviewController implements vscode.Disposable {
         break;
       }
       case 'htmlExportSnapshot': {
-        if (this.pendingHtmlExportSnapshot && this.pendingHtmlExportSnapshot.requestId === message.requestId) {
+        if (
+          this.pendingHtmlExportSnapshot &&
+          this.pendingHtmlExportSnapshot.requestId === message.requestId
+        ) {
           clearTimeout(this.pendingHtmlExportSnapshot.timer);
           this.pendingHtmlExportSnapshot.resolve(message.html);
           this.pendingHtmlExportSnapshot = undefined;
@@ -724,19 +1135,39 @@ export class PreviewController implements vscode.Disposable {
 
   private async buildWebviewHtml(
     webview: vscode.Webview,
-    documentUri: vscode.Uri,
-    settings: RuntimeSettings
+    settings: RuntimeSettings,
+    customCssTexts: string[] = []
   ): Promise<string> {
     const nonce = createNonce();
-    const scriptUri = webview.asWebviewUri(vscode.Uri.joinPath(this.context.extensionUri, 'dist', 'webview-ui', 'index.js'));
-    const cssUri = webview.asWebviewUri(vscode.Uri.joinPath(this.context.extensionUri, 'dist', 'webview-ui', 'index.css'));
+    const scriptUri = webview.asWebviewUri(
+      vscode.Uri.joinPath(
+        this.context.extensionUri,
+        'dist',
+        'webview-ui',
+        'index.js'
+      )
+    );
+    const cssUri = webview.asWebviewUri(
+      vscode.Uri.joinPath(
+        this.context.extensionUri,
+        'dist',
+        'webview-ui',
+        'index.css'
+      )
+    );
     // Strict CSP with optional remote image sources; script/style/connect remain locked down.
     const csp = buildWebviewCsp(webview.cspSource, nonce, {
       allowRemoteImages: settings.allowRemoteImages
     });
-    const customCss = await getWorkspaceCustomCss(documentUri);
-
-    const customCssTag = customCss ? inlineCssTag(customCss, nonce) : '';
+    const customCssTags = customCssTexts
+      .map((cssText, index) =>
+        inlineCssTag(
+          cssText,
+          nonce,
+          ` id="omv-custom-css-${index}" data-omv-custom-css="true"`
+        )
+      )
+      .join('\n  ');
 
     return `<!DOCTYPE html>
 <html lang="en">
@@ -746,7 +1177,7 @@ export class PreviewController implements vscode.Disposable {
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Offline Markdown Preview</title>
   <link nonce="${nonce}" rel="stylesheet" href="${cssUri}" />
-  ${customCssTag}
+  ${customCssTags}
 </head>
 <body>
   <div id="app"></div>
@@ -763,12 +1194,79 @@ export class PreviewController implements vscode.Disposable {
     settings: RuntimeSettings
   ): Promise<boolean> {
     if (!this.panel) return false;
-    if (this.webviewAllowsRemoteImages === settings.allowRemoteImages) {
+    const remoteImagesChanged =
+      this.webviewAllowsRemoteImages !== settings.allowRemoteImages;
+
+    const customCss = await this.resolvePendingCustomCss(documentUri);
+    const nextCustomCssKey = customCss.key;
+    const nextCustomCssTexts = customCss.cssTexts;
+
+    const customCssChanged = this.webviewCustomCssKey !== nextCustomCssKey;
+    if (!remoteImagesChanged && !customCssChanged) {
       return false;
     }
-    this.panel.webview.html = await this.buildWebviewHtml(this.panel.webview, documentUri, settings);
+
+    if (remoteImagesChanged) {
+      this.panel.webview.html = await this.buildWebviewHtml(
+        this.panel.webview,
+        settings,
+        nextCustomCssTexts
+      );
+    } else {
+      this.postMessage({
+        type: 'updateCustomCss',
+        cssTexts: nextCustomCssTexts
+      });
+    }
+
     this.webviewAllowsRemoteImages = settings.allowRemoteImages;
-    return true;
+    this.webviewCustomCssKey = nextCustomCssKey;
+    this.webviewCustomCssTexts = nextCustomCssTexts;
+    return remoteImagesChanged;
+  }
+
+  private async refreshCustomCssOnly(): Promise<void> {
+    const panel = this.panel;
+    const editor = this.currentEditor;
+    if (!panel || !editor || editor.document.languageId !== 'markdown') {
+      return;
+    }
+
+    const customCss = await this.resolvePendingCustomCss(editor.document.uri);
+    if (this.webviewCustomCssKey === customCss.key) {
+      return;
+    }
+
+    this.postMessage({
+      type: 'updateCustomCss',
+      cssTexts: customCss.cssTexts
+    });
+    this.webviewCustomCssKey = customCss.key;
+    this.webviewCustomCssTexts = customCss.cssTexts;
+  }
+
+  private async resolvePendingCustomCss(
+    documentUri: vscode.Uri
+  ): Promise<{ key: string; cssTexts: string[] }> {
+    if (!this.webviewCustomCssDirty && this.webviewCustomCssKey !== undefined) {
+      return {
+        key: this.webviewCustomCssKey,
+        cssTexts: this.webviewCustomCssTexts ?? []
+      };
+    }
+
+    const customCss = await resolveCustomCss(documentUri);
+    this.webviewCustomCssDirty = false;
+    return customCss;
+  }
+
+  private isCurrentCustomCssUri(uri: vscode.Uri): boolean {
+    if (!this.panel || !this.currentEditor) {
+      return false;
+    }
+
+    const targets = getConfiguredCustomCssUris(this.currentEditor.document.uri);
+    return targets.some((target) => target.toString() === uri.toString());
   }
 
   private postMessage(message: ExtensionToWebviewMessage): void {
@@ -784,7 +1282,9 @@ export class PreviewController implements vscode.Disposable {
     }
   }
 
-  private async requestRenderedHtmlExportSnapshot(): Promise<string | undefined> {
+  private async requestRenderedHtmlExportSnapshot(): Promise<
+    string | undefined
+  > {
     if (!this.panel) return undefined;
 
     if (this.pendingHtmlExportSnapshot) {
@@ -841,7 +1341,9 @@ export class PreviewController implements vscode.Disposable {
           await this.revealHeading(resolved.fragment);
         }
       } catch {
-        void vscode.window.showWarningMessage(`Could not open link target: ${href}`);
+        void vscode.window.showWarningMessage(
+          `Could not open link target: ${href}`
+        );
       }
       return;
     }
@@ -860,7 +1362,9 @@ export class PreviewController implements vscode.Disposable {
           });
           this.currentEditor = editor2;
         } catch {
-          void vscode.window.showWarningMessage('Could not open the selected file.');
+          void vscode.window.showWarningMessage(
+            'Could not open the selected file.'
+          );
         }
       }
       return;
@@ -874,12 +1378,17 @@ export class PreviewController implements vscode.Disposable {
     if (!heading) return;
     const pos = new vscode.Position(heading.line, 0);
     editor.selection = new vscode.Selection(pos, pos);
-    editor.revealRange(new vscode.Range(pos, pos), vscode.TextEditorRevealType.InCenter);
+    editor.revealRange(
+      new vscode.Range(pos, pos),
+      vscode.TextEditorRevealType.InCenter
+    );
   }
 
   private async openLocalImage(src: string): Promise<void> {
     const uri = vscode.Uri.parse(src, true);
-    const folder = this.currentEditor ? vscode.workspace.getWorkspaceFolder(this.currentEditor.document.uri) : undefined;
+    const folder = this.currentEditor
+      ? vscode.workspace.getWorkspaceFolder(this.currentEditor.document.uri)
+      : undefined;
     if (folder) {
       const rel = path.relative(folder.uri.fsPath, uri.fsPath);
       if (rel.startsWith('..') || path.isAbsolute(rel)) {
@@ -909,7 +1418,11 @@ export class PreviewController implements vscode.Disposable {
     }
 
     try {
-      const downloaded = await this.downloadRemoteImageToCache(src, editor.document.uri, settings.maxImageMB);
+      const downloaded = await this.downloadRemoteImageToCache(
+        src,
+        editor.document.uri,
+        settings.maxImageMB
+      );
       this.remoteImageOverrides.set(src, downloaded);
       this.postMessage({
         type: 'notify',
@@ -947,9 +1460,13 @@ export class PreviewController implements vscode.Disposable {
       throw new Error(`HTTP ${response.status} ${response.statusText}`.trim());
     }
 
-    const contentType = (response.headers.get('content-type') ?? '').toLowerCase();
+    const contentType = (
+      response.headers.get('content-type') ?? ''
+    ).toLowerCase();
     if (!contentType.startsWith('image/')) {
-      throw new Error(`URL did not return an image (${contentType || 'unknown content-type'})`);
+      throw new Error(
+        `URL did not return an image (${contentType || 'unknown content-type'})`
+      );
     }
 
     const data = new Uint8Array(await response.arrayBuffer());
@@ -972,15 +1489,24 @@ export class PreviewController implements vscode.Disposable {
     return target;
   }
 
-  private async resolveRemoteImageCacheDir(documentUri: vscode.Uri): Promise<vscode.Uri> {
+  private async resolveRemoteImageCacheDir(
+    documentUri: vscode.Uri
+  ): Promise<vscode.Uri> {
     const folder = vscode.workspace.getWorkspaceFolder(documentUri);
     if (folder) {
-      return vscode.Uri.joinPath(folder.uri, '.offline-markdown-preview', 'remote-images');
+      return vscode.Uri.joinPath(
+        folder.uri,
+        '.offline-markdown-preview',
+        'remote-images'
+      );
     }
     return vscode.Uri.joinPath(this.context.globalStorageUri, 'remote-images');
   }
 
-  private getRemoteImageCacheLocations(): Array<{ uri: vscode.Uri; label: string }> {
+  private getRemoteImageCacheLocations(): Array<{
+    uri: vscode.Uri;
+    label: string;
+  }> {
     const locations: Array<{ uri: vscode.Uri; label: string }> = [];
     const seen = new Set<string>();
     const add = (uri: vscode.Uri, label: string) => {
@@ -992,11 +1518,18 @@ export class PreviewController implements vscode.Disposable {
 
     for (const folder of vscode.workspace.workspaceFolders ?? []) {
       add(
-        vscode.Uri.joinPath(folder.uri, '.offline-markdown-preview', 'remote-images'),
+        vscode.Uri.joinPath(
+          folder.uri,
+          '.offline-markdown-preview',
+          'remote-images'
+        ),
         `workspace:${folder.name}`
       );
     }
-    add(vscode.Uri.joinPath(this.context.globalStorageUri, 'remote-images'), 'global-storage');
+    add(
+      vscode.Uri.joinPath(this.context.globalStorageUri, 'remote-images'),
+      'global-storage'
+    );
 
     return locations;
   }
@@ -1004,10 +1537,22 @@ export class PreviewController implements vscode.Disposable {
   private async collectRemoteImageCacheUsage(): Promise<{
     totalBytes: number;
     totalFiles: number;
-    locations: Array<{ uri: vscode.Uri; label: string; exists: boolean; bytes: number; files: number }>;
+    locations: Array<{
+      uri: vscode.Uri;
+      label: string;
+      exists: boolean;
+      bytes: number;
+      files: number;
+    }>;
   }> {
     const locations = this.getRemoteImageCacheLocations();
-    const usageLocations: Array<{ uri: vscode.Uri; label: string; exists: boolean; bytes: number; files: number }> = [];
+    const usageLocations: Array<{
+      uri: vscode.Uri;
+      label: string;
+      exists: boolean;
+      bytes: number;
+      files: number;
+    }> = [];
     let totalBytes = 0;
     let totalFiles = 0;
 
@@ -1021,7 +1566,9 @@ export class PreviewController implements vscode.Disposable {
     return { totalBytes, totalFiles, locations: usageLocations };
   }
 
-  private async measureDirectoryUsage(dir: vscode.Uri): Promise<{ exists: boolean; bytes: number; files: number }> {
+  private async measureDirectoryUsage(
+    dir: vscode.Uri
+  ): Promise<{ exists: boolean; bytes: number; files: number }> {
     try {
       const stat = await vscode.workspace.fs.stat(dir);
       if (!(stat.type & vscode.FileType.Directory)) {
@@ -1074,8 +1621,15 @@ export class PreviewController implements vscode.Disposable {
     return { exists: true, bytes, files };
   }
 
-  private async embedLocalImages(html: string, maxImageMB: number): Promise<string> {
-    const matches = [...html.matchAll(/<img[^>]*data-local-src="([^"]+)"[^>]*src="([^"]*)"[^>]*>/g)];
+  private async embedLocalImages(
+    html: string,
+    maxImageMB: number
+  ): Promise<string> {
+    const matches = [
+      ...html.matchAll(
+        /<img[^>]*data-local-src="([^"]+)"[^>]*src="([^"]*)"[^>]*>/g
+      )
+    ];
     let next = html;
     for (const match of matches) {
       const localUri = vscode.Uri.parse(match[1], true);
@@ -1091,8 +1645,13 @@ export class PreviewController implements vscode.Disposable {
   private rewriteLocalImageSourcesForExport(html: string): string {
     return html.replace(
       /(<img[^>]*data-local-src="([^"]+)"[^>]*src=")([^"]*)(")/g,
-      (_match, prefix: string, localSrc: string, _currentSrc: string, suffix: string) =>
-        `${prefix}${localSrc}${suffix}`
+      (
+        _match,
+        prefix: string,
+        localSrc: string,
+        _currentSrc: string,
+        suffix: string
+      ) => `${prefix}${localSrc}${suffix}`
     );
   }
 
@@ -1145,14 +1704,34 @@ export class PreviewController implements vscode.Disposable {
     };
   }
 
-  private async buildStandaloneHtml(bodyHtml: string, sourceUri: vscode.Uri, settings: RuntimeSettings): Promise<string> {
-    const cssPath = vscode.Uri.joinPath(this.context.extensionUri, 'dist', 'webview-ui', 'index.css').fsPath;
+  private async buildStandaloneHtml(
+    bodyHtml: string,
+    sourceUri: vscode.Uri,
+    settings: RuntimeSettings
+  ): Promise<string> {
+    const cssPath = vscode.Uri.joinPath(
+      this.context.extensionUri,
+      'dist',
+      'webview-ui',
+      'index.css'
+    ).fsPath;
     let baseCss = '';
     try {
       baseCss = await fs.readFile(cssPath, 'utf8');
     } catch {
-      baseCss = 'body{font-family:sans-serif;padding:1rem;max-width:900px;margin:0 auto;}';
+      baseCss =
+        'body{font-family:sans-serif;padding:1rem;max-width:900px;margin:0 auto;}';
     }
+    const customCss = await resolveCustomCss(sourceUri);
+    const customCssTags = customCss.cssTexts
+      .map((cssText, index) =>
+        inlineCssTag(
+          cssText,
+          'omv-export-custom-css',
+          ` data-omv-custom-css="${index}"`
+        )
+      )
+      .join('\n');
 
     const frontmatter =
       settings.showFrontmatter && this.state.snapshot?.frontmatter
@@ -1166,6 +1745,7 @@ export class PreviewController implements vscode.Disposable {
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>${escapeHtml(path.basename(sourceUri.fsPath))}</title>
 <style>${baseCss}</style>
+${customCssTags}
 </head>
 <body>
 ${frontmatter}
@@ -1201,7 +1781,10 @@ function isDisposedWebviewError(error: unknown): boolean {
   return /webview is disposed/i.test(message) || /disposed/i.test(message);
 }
 
-function inferRemoteImageExtension(contentType: string, urlPathname: string): string {
+function inferRemoteImageExtension(
+  contentType: string,
+  urlPathname: string
+): string {
   const typeMap: Record<string, string> = {
     'image/png': '.png',
     'image/jpeg': '.jpg',
@@ -1237,7 +1820,10 @@ function getErrorMessage(error: unknown): string {
 }
 
 function isFileNotFoundError(error: unknown): boolean {
-  const code = typeof error === 'object' && error ? (error as { code?: string }).code : undefined;
+  const code =
+    typeof error === 'object' && error
+      ? (error as { code?: string }).code
+      : undefined;
   if (code && (code === 'FileNotFound' || code === 'ENOENT')) {
     return true;
   }
@@ -1256,7 +1842,8 @@ function formatBytes(bytes: number): string {
     value /= 1024;
     unitIndex += 1;
   }
-  const rounded = value >= 10 || unitIndex === 0 ? value.toFixed(0) : value.toFixed(1);
+  const rounded =
+    value >= 10 || unitIndex === 0 ? value.toFixed(0) : value.toFixed(1);
   return `${rounded} ${units[unitIndex]}`;
 }
 
@@ -1324,7 +1911,9 @@ function getHeadlessBrowserCandidates(): string[] {
 async function runProcess(
   command: string,
   args: string[]
-): Promise<{ ok: true } | { ok: false; code: number | string; stderr?: string }> {
+): Promise<
+  { ok: true } | { ok: false; code: number | string; stderr?: string }
+> {
   return new Promise((resolve) => {
     let stderr = '';
     let settled = false;
@@ -1339,7 +1928,11 @@ async function runProcess(
     child.on('error', (error: NodeJS.ErrnoException) => {
       if (settled) return;
       settled = true;
-      resolve({ ok: false, code: error.code ?? 'ERROR', stderr: error.message });
+      resolve({
+        ok: false,
+        code: error.code ?? 'ERROR',
+        stderr: error.message
+      });
     });
 
     child.on('close', (code) => {

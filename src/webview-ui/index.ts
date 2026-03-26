@@ -24,6 +24,8 @@ interface ViewState {
   tocVisible?: boolean;
 }
 
+const CUSTOM_CSS_STYLE_SELECTOR = 'style[data-omv-custom-css="true"]';
+
 const vscode = acquireVsCodeApi();
 blockRemoteNetworking();
 
@@ -189,6 +191,10 @@ vscode.postMessage({ type: 'ready' });
 
 async function handleMessage(message: ExtensionToWebviewMessage): Promise<void> {
   switch (message.type) {
+    case 'updateCustomCss': {
+      applyCustomCss(message.cssTexts);
+      break;
+    }
     case 'render': {
       lastRender = message;
       await renderer.render(message);
@@ -243,6 +249,36 @@ async function handleMessage(message: ExtensionToWebviewMessage): Promise<void> 
       break;
     }
   }
+}
+
+function applyCustomCss(cssTexts: string[]): void {
+  const existing = Array.from(
+    document.head.querySelectorAll<HTMLStyleElement>(CUSTOM_CSS_STYLE_SELECTOR)
+  );
+  const styleNonce = getBootStyleNonce();
+
+  cssTexts.forEach((cssText, index) => {
+    let styleEl = existing[index];
+    if (!(styleEl instanceof HTMLStyleElement)) {
+      styleEl = document.createElement('style');
+      document.head.append(styleEl);
+    }
+
+    styleEl.id = `omv-custom-css-${index}`;
+    styleEl.setAttribute('data-omv-custom-css', 'true');
+    if (styleNonce) {
+      styleEl.setAttribute('nonce', styleNonce);
+    }
+    styleEl.textContent = cssText;
+  });
+
+  existing.slice(cssTexts.length).forEach((styleEl) => styleEl.remove());
+}
+
+function getBootStyleNonce(): string | undefined {
+  const boot = (window as Window & { __OMV_BOOT__?: { styleNonce?: string } })
+    .__OMV_BOOT__;
+  return boot?.styleNonce;
 }
 
 function persistState(): void {

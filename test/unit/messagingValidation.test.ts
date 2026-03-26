@@ -31,4 +31,15 @@ describe('messaging validation', () => {
     });
     expect(msg.type).toBe('render');
   });
+
+  it('accepts custom CSS update messages', () => {
+    const msg = parseExtensionMessage({
+      type: 'updateCustomCss',
+      cssTexts: ['.omv-content { color: red; }']
+    });
+    expect(msg).toMatchObject({
+      type: 'updateCustomCss',
+      cssTexts: ['.omv-content { color: red; }']
+    });
+  });
 });
