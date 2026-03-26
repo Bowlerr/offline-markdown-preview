@@ -7,6 +7,24 @@ import footnote from 'markdown-it-footnote';
 import taskLists from 'markdown-it-task-lists';
 
 import type { FrontmatterInfo, TocItem } from '../../messaging/protocol';
+import {
+  OMV_EXPORT_SRCSET_ATTR,
+  OMV_IMAGE_BLOCKED_ATTR,
+  OMV_IMAGE_BLOCKED_REMOTE_DISABLED,
+  OMV_IMAGE_BLOCKED_SIZE_LIMIT,
+  OMV_LOCAL_SRC_ATTR,
+  OMV_MAX_MB_ATTR,
+  OMV_REMOTE_SRC_ATTR
+} from '../../../previewImageMetadata';
+import {
+  getHtmlAttribute,
+  mapHtmlImgTags,
+  parseHtmlImgTag,
+  parseHtmlSrcset,
+  serializeHtmlImgTag,
+  serializeHtmlSrcset,
+  setHtmlAttribute
+} from '../htmlImageTags';
 import { parseFrontmatter } from './frontmatter';
 import { resolveImageUri } from './linkResolver';
 
@@ -85,6 +103,298 @@ function renderMathPlaceholder(
     return `<div class="${className}"${extraAttrs} data-math="${encodeMathExpression(expr)}"></div>`;
   }
   return `<span class="${className}"${extraAttrs} data-math="${encodeMathExpression(expr)}"></span>`;
+}
+
+function rewriteSrcsetAttribute(
+  attributes: Array<{ name: string; value?: string }>,
+  options: MarkdownRenderOptions
+): {
+  previewCandidates: Array<{ url: string; descriptor?: string }>;
+  blockedRemoteCandidates: Array<{ url: string; descriptor?: string }>;
+  blockedBySizeLimit: boolean;
+  changed: boolean;
+} {
+  const srcset = getHtmlAttribute(attributes, 'srcset')?.value;
+  if (!srcset) {
+    return {
+      previewCandidates: [],
+      blockedRemoteCandidates: [],
+      blockedBySizeLimit: false,
+      changed: false
+    };
+  }
+
+  const previewCandidates = [];
+  const exportCandidates = [];
+  const blockedRemoteCandidates = [];
+  let blockedBySizeLimit = false;
+  let changed = false;
+
+  for (const candidate of parseHtmlSrcset(srcset)) {
+    const override = options.remoteImageOverrides?.get(candidate.url);
+    const resolved = resolveImageUri(options.sourceUri, candidate.url);
+
+    if (override) {
+      previewCandidates.push({
+        url: options.webview.asWebviewUri(override).toString(),
+        descriptor: candidate.descriptor
+      });
+      exportCandidates.push({
+        url: override.toString(),
+        descriptor: candidate.descriptor
+      });
+      changed = true;
+      continue;
+    }
+
+    if (resolved) {
+      exportCandidates.push({
+        url: resolved.toString(),
+        descriptor: candidate.descriptor
+      });
+
+      try {
+        const bytes = statSync(resolved.fsPath).size;
+        if (bytes > options.maxImageMB * 1024 * 1024) {
+          blockedBySizeLimit = true;
+          changed = true;
+          continue;
+        }
+      } catch {
+        // If stat fails we still rewrite to a webview URI and let runtime loading decide the result.
+      }
+
+      previewCandidates.push({
+        url: options.webview.asWebviewUri(resolved).toString(),
+        descriptor: candidate.descriptor
+      });
+      changed = true;
+      continue;
+    }
+
+    if (/^https?:\/\//i.test(candidate.url) && !options.allowRemoteImages) {
+      exportCandidates.push(candidate);
+      blockedRemoteCandidates.push(candidate);
+      changed = true;
+      continue;
+    }
+
+    previewCandidates.push(candidate);
+    exportCandidates.push(candidate);
+  }
+
+  if (!changed) {
+    return {
+      previewCandidates,
+      blockedRemoteCandidates,
+      blockedBySizeLimit,
+      changed
+    };
+  }
+
+  setHtmlAttribute(
+    attributes,
+    OMV_EXPORT_SRCSET_ATTR,
+    serializeHtmlSrcset(exportCandidates)
+  );
+  setHtmlAttribute(
+    attributes,
+    'srcset',
+    serializeHtmlSrcset(previewCandidates)
+  );
+  return {
+    previewCandidates,
+    blockedRemoteCandidates,
+    blockedBySizeLimit,
+    changed
+  };
+}
+
+function setBlockedRemoteImageMetadata(
+  attributes: Array<{ name: string; value?: string }>,
+  blockedCandidates: Array<{ url: string }>
+): void {
+  if (blockedCandidates.length === 0) {
+    return;
+  }
+
+  if (!getHtmlAttribute(attributes, OMV_REMOTE_SRC_ATTR)?.value) {
+    setHtmlAttribute(attributes, OMV_REMOTE_SRC_ATTR, blockedCandidates[0].url);
+  }
+  if (!getHtmlAttribute(attributes, OMV_IMAGE_BLOCKED_ATTR)?.value) {
+    setHtmlAttribute(
+      attributes,
+      OMV_IMAGE_BLOCKED_ATTR,
+      OMV_IMAGE_BLOCKED_REMOTE_DISABLED
+    );
+  }
+}
+
+function setHtmlAttributeIfAbsent(
+  attributes: Array<{ name: string; value?: string }>,
+  name: string,
+  value: string
+): void {
+  if (getHtmlAttribute(attributes, name)) {
+    return;
+  }
+  setHtmlAttribute(attributes, name, value);
+}
+
+function rewriteImageAttributes(
+  attributes: Array<{ name: string; value?: string }>,
+  rawSrc: string,
+  options: MarkdownRenderOptions
+): void {
+  const override = options.remoteImageOverrides?.get(rawSrc);
+  const resolved = resolveImageUri(options.sourceUri, rawSrc);
+  const blockedRemoteImage =
+    /^https?:\/\//i.test(rawSrc) && !options.allowRemoteImages;
+  let blockedBySizeLimit = false;
+
+  if (override) {
+    setHtmlAttribute(attributes, OMV_LOCAL_SRC_ATTR, override.toString());
+    setHtmlAttribute(
+      attributes,
+      'src',
+      options.webview.asWebviewUri(override).toString()
+    );
+  } else if (resolved) {
+    setHtmlAttribute(attributes, OMV_LOCAL_SRC_ATTR, resolved.toString());
+    try {
+      const bytes = statSync(resolved.fsPath).size;
+      if (bytes > options.maxImageMB * 1024 * 1024) {
+        blockedBySizeLimit = true;
+        setHtmlAttribute(attributes, 'src', '');
+      } else {
+        setHtmlAttribute(
+          attributes,
+          'src',
+          options.webview.asWebviewUri(resolved).toString()
+        );
+      }
+    } catch {
+      // If stat fails we still rewrite to a webview URI and let runtime loading decide the result.
+      setHtmlAttribute(
+        attributes,
+        'src',
+        options.webview.asWebviewUri(resolved).toString()
+      );
+    }
+  } else if (blockedRemoteImage) {
+    setHtmlAttribute(attributes, OMV_REMOTE_SRC_ATTR, rawSrc);
+    setHtmlAttribute(
+      attributes,
+      OMV_IMAGE_BLOCKED_ATTR,
+      OMV_IMAGE_BLOCKED_REMOTE_DISABLED
+    );
+  }
+
+  const srcsetRewrite = rewriteSrcsetAttribute(attributes, options);
+  setBlockedRemoteImageMetadata(
+    attributes,
+    srcsetRewrite.blockedRemoteCandidates
+  );
+
+  if (blockedRemoteImage) {
+    if (srcsetRewrite.previewCandidates.length > 0) {
+      const previewSrc = srcsetRewrite.previewCandidates[0]?.url;
+      setHtmlAttribute(attributes, 'src', previewSrc ?? '');
+    } else {
+      setHtmlAttribute(attributes, 'srcset', '');
+      setHtmlAttribute(attributes, 'src', '');
+    }
+  }
+
+  if (blockedBySizeLimit && srcsetRewrite.previewCandidates.length === 0) {
+    const alt = getHtmlAttribute(attributes, 'alt')?.value ?? 'image';
+    setHtmlAttribute(
+      attributes,
+      'alt',
+      `${alt} (blocked: exceeds preview.maxImageMB)`
+    );
+    setHtmlAttribute(
+      attributes,
+      OMV_IMAGE_BLOCKED_ATTR,
+      OMV_IMAGE_BLOCKED_SIZE_LIMIT
+    );
+  }
+
+  setHtmlAttributeIfAbsent(attributes, 'loading', 'lazy');
+  setHtmlAttributeIfAbsent(attributes, 'decoding', 'async');
+  setHtmlAttributeIfAbsent(attributes, 'referrerpolicy', 'no-referrer');
+  setHtmlAttribute(attributes, OMV_MAX_MB_ATTR, String(options.maxImageMB));
+}
+
+function rewriteRawHtmlImages(
+  html: string,
+  options: MarkdownRenderOptions
+): string {
+  return mapHtmlImgTags(html, (tag) => {
+    const parsed = parseHtmlImgTag(tag);
+    if (!parsed) {
+      return tag;
+    }
+
+    if (
+      getHtmlAttribute(parsed.attributes, OMV_LOCAL_SRC_ATTR) ||
+      getHtmlAttribute(parsed.attributes, OMV_REMOTE_SRC_ATTR) ||
+      getHtmlAttribute(parsed.attributes, OMV_IMAGE_BLOCKED_ATTR) ||
+      getHtmlAttribute(parsed.attributes, OMV_EXPORT_SRCSET_ATTR)
+    ) {
+      return tag;
+    }
+
+    const src = getHtmlAttribute(parsed.attributes, 'src')?.value;
+    const srcset = getHtmlAttribute(parsed.attributes, 'srcset')?.value;
+    if (!src && !srcset) {
+      return serializeHtmlImgTag(parsed.attributes, parsed.selfClosing);
+    }
+
+    if (src) {
+      rewriteImageAttributes(parsed.attributes, src, options);
+    } else {
+      const srcsetRewrite = rewriteSrcsetAttribute(parsed.attributes, options);
+      setBlockedRemoteImageMetadata(
+        parsed.attributes,
+        srcsetRewrite.blockedRemoteCandidates
+      );
+      if (
+        srcsetRewrite.changed &&
+        srcsetRewrite.previewCandidates.length === 0
+      ) {
+        if (srcsetRewrite.blockedRemoteCandidates.length > 0) {
+          setHtmlAttribute(parsed.attributes, 'src', '');
+        } else if (srcsetRewrite.blockedBySizeLimit) {
+          const alt = getHtmlAttribute(parsed.attributes, 'alt')?.value ?? 'image';
+          setHtmlAttribute(
+            parsed.attributes,
+            'alt',
+            `${alt} (blocked: exceeds preview.maxImageMB)`
+          );
+          setHtmlAttribute(
+            parsed.attributes,
+            OMV_IMAGE_BLOCKED_ATTR,
+            OMV_IMAGE_BLOCKED_SIZE_LIMIT
+          );
+          setHtmlAttribute(parsed.attributes, 'src', '');
+        }
+      }
+      setHtmlAttributeIfAbsent(parsed.attributes, 'loading', 'lazy');
+      setHtmlAttributeIfAbsent(parsed.attributes, 'decoding', 'async');
+      setHtmlAttributeIfAbsent(
+        parsed.attributes,
+        'referrerpolicy',
+        'no-referrer'
+      );
+      setHtmlAttribute(
+        parsed.attributes,
+        OMV_MAX_MB_ATTR,
+        String(options.maxImageMB)
+      );
+    }
+    return serializeHtmlImgTag(parsed.attributes, parsed.selfClosing);
+  });
 }
 
 function isEscaped(source: string, index: number): boolean {
@@ -310,7 +620,7 @@ function createMarkdownIt(options: MarkdownRenderOptions): MarkdownIt {
     const override = options.remoteImageOverrides?.get(src);
     const resolved = resolveImageUri(options.sourceUri, src);
     if (override) {
-      token.attrSet('data-local-src', override.toString());
+      token.attrSet(OMV_LOCAL_SRC_ATTR, override.toString());
       token.attrSet('src', options.webview.asWebviewUri(override).toString());
     } else if (resolved) {
       try {
@@ -320,24 +630,27 @@ function createMarkdownIt(options: MarkdownRenderOptions): MarkdownIt {
             'alt',
             `${token.attrGet('alt') ?? 'image'} (blocked: exceeds preview.maxImageMB)`
           );
-          token.attrSet('data-image-blocked', 'size-limit');
+          token.attrSet(OMV_IMAGE_BLOCKED_ATTR, OMV_IMAGE_BLOCKED_SIZE_LIMIT);
           token.attrSet('src', '');
           return imageRule ? imageRule(tokens, idx, opts, env, self) : self.renderToken(tokens, idx, opts);
         }
       } catch {
         // If stat fails we leave the original src untouched; CSP/runtime policy governs remote sources.
       }
-      token.attrSet('data-local-src', resolved.toString());
+      token.attrSet(OMV_LOCAL_SRC_ATTR, resolved.toString());
       token.attrSet('src', options.webview.asWebviewUri(resolved).toString());
     } else if (/^https?:\/\//i.test(src) && !options.allowRemoteImages) {
-      token.attrSet('data-remote-src', src);
-      token.attrSet('data-image-blocked', 'remote-disabled');
+      token.attrSet(OMV_REMOTE_SRC_ATTR, src);
+      token.attrSet(
+        OMV_IMAGE_BLOCKED_ATTR,
+        OMV_IMAGE_BLOCKED_REMOTE_DISABLED
+      );
       token.attrSet('src', '');
     }
     token.attrSet('loading', 'lazy');
     token.attrSet('decoding', 'async');
     token.attrSet('referrerpolicy', 'no-referrer');
-    token.attrSet('data-max-mb', String(options.maxImageMB));
+    token.attrSet(OMV_MAX_MB_ATTR, String(options.maxImageMB));
     return imageRule ? imageRule(tokens, idx, opts, env, self) : self.renderToken(tokens, idx, opts);
   };
 
@@ -375,7 +688,7 @@ export function renderMarkdown(input: string, options: MarkdownRenderOptions): M
   const parsed = parseFrontmatter(input);
   const md = createMarkdownIt(options);
   const env: RenderEnvironment = { toc: [] };
-  const html = md.render(parsed.content, env);
+  const html = rewriteRawHtmlImages(md.render(parsed.content, env), options);
   const lineCount = input.split(/\r?\n/).length;
 
   return {

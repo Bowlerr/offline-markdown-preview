@@ -2,7 +2,7 @@
   "name": "offline-markdown-preview",
   "displayName": "Offline Markdown Preview",
   "description": "Offline Markdown preview for VS Code with Mermaid diagrams, KaTeX math, secure local rendering, export, scroll sync, and outline navigation.",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "publisher": "bowlerr",
   "author": {
     "name": "Bowlerr",
@@ -152,7 +152,7 @@
         },
         "offlineMarkdownViewer.preview.maxImageMB": {
           "type": "number",
-          "default": 8,
+          "default": 24,
           "minimum": 1,
           "maximum": 100,
           "description": "Maximum image size loaded into preview (megabytes)."

@@ -7,7 +7,9 @@ import type {
   RenderPayload
 } from '../extension/messaging/protocol';
 import { parseExtensionMessage } from '../extension/messaging/validate';
+import { OMV_REMOTE_SRC_ATTR } from '../previewImageMetadata';
 import { PreviewRenderer } from './app/renderer';
+import { restoreRemoteImageExportVisibility } from './app/remoteImageAttrs';
 import { PreviewSearch } from './app/search';
 import { ScrollSyncController } from './app/scrollSync';
 import { TocView } from './app/toc';
@@ -445,6 +447,16 @@ function buildRenderedHtmlExportSnapshot(): {
     } else {
       interactive.remove();
     }
+  }
+
+  for (const block of clone.querySelectorAll<HTMLElement>('.omv-remote-image')) {
+    block.remove();
+  }
+
+  for (const img of clone.querySelectorAll<HTMLImageElement>(
+    `img[${OMV_REMOTE_SRC_ATTR}]`
+  )) {
+    restoreRemoteImageExportVisibility(img);
   }
 
   // Remove preview-only state attrs.

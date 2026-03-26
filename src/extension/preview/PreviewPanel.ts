@@ -12,6 +12,21 @@ import type {
   WebviewToExtensionMessage
 } from '../messaging/protocol';
 import { parseWebviewMessage } from '../messaging/validate';
+import {
+  OMV_EXPORT_SRCSET_ATTR,
+  OMV_LOCAL_SRC_ATTR,
+  OMV_REMOTE_SRC_ATTR
+} from '../../previewImageMetadata';
+import {
+  getHtmlAttribute,
+  mapHtmlImgTags,
+  mapHtmlImgTagsAsync,
+  parseHtmlImgTag,
+  parseHtmlSrcset,
+  serializeHtmlImgTag,
+  serializeHtmlSrcset,
+  setHtmlAttribute
+} from './htmlImageTags';
 import { renderMarkdown } from './markdown/markdownPipeline';
 import {
   fileSizeBytes,
@@ -42,6 +57,13 @@ interface PreviewUiState {
 interface HtmlExportSnapshotData {
   html: string;
   themeVariables?: Record<string, string>;
+}
+
+function withSvgFragment(url: string, uri: vscode.Uri): string {
+  if (!uri.fragment || path.extname(uri.fsPath || uri.path).toLowerCase() !== '.svg') {
+    return url;
+  }
+  return `${url}#${uri.fragment}`;
 }
 
 interface RuntimeSettings {
@@ -86,7 +108,7 @@ function getSettings(resource?: vscode.Uri): RuntimeSettings {
     allowRemoteImages: cfg.get<boolean>('preview.allowRemoteImages', false),
     showFrontmatter: cfg.get<boolean>('preview.showFrontmatter', false),
     externalConfirm: cfg.get<boolean>('externalLinks.confirm', true),
-    maxImageMB: cfg.get<number>('preview.maxImageMB', 8),
+    maxImageMB: cfg.get<number>('preview.maxImageMB', 24),
     embedImages: cfg.get<boolean>('export.embedImages', false),
     debounceMs: cfg.get<number>('performance.debounceMs', 120),
     useMarkdownPreviewGithubStyling: cfg.get<boolean>(
@@ -1749,34 +1771,101 @@ export class PreviewController implements vscode.Disposable {
     html: string,
     maxImageMB: number
   ): Promise<string> {
-    const matches = [
-      ...html.matchAll(
-        /<img[^>]*data-local-src="([^"]+)"[^>]*src="([^"]*)"[^>]*>/g
-      )
-    ];
-    let next = html;
-    for (const match of matches) {
-      const localUri = vscode.Uri.parse(match[1], true);
-      const bytes = await fileSizeBytes(localUri).catch(() => 0);
-      if (bytes <= 0 || bytes > maxImageMB * 1024 * 1024) continue;
-      const dataUri = await toDataUri(localUri).catch(() => undefined);
-      if (!dataUri) continue;
-      next = next.replace(match[2], dataUri);
-    }
-    return next;
+    return mapHtmlImgTagsAsync(html, async (tag) => {
+      const parsed = parseHtmlImgTag(tag);
+      if (!parsed) {
+        return tag;
+      }
+
+      const localSrc = getHtmlAttribute(parsed.attributes, OMV_LOCAL_SRC_ATTR)
+        ?.value;
+      const exportSrcset = getHtmlAttribute(parsed.attributes, 'srcset')?.value;
+      let changed = false;
+
+      if (localSrc) {
+        const localUri = vscode.Uri.parse(localSrc, true);
+        const bytes = await fileSizeBytes(localUri).catch(() => 0);
+        if (bytes > 0 && bytes <= maxImageMB * 1024 * 1024) {
+          const dataUri = await toDataUri(localUri).catch(() => undefined);
+          if (dataUri) {
+            setHtmlAttribute(
+              parsed.attributes,
+              'src',
+              withSvgFragment(dataUri, localUri)
+            );
+            changed = true;
+          }
+        }
+      }
+
+      if (exportSrcset) {
+        const embeddedSrcset = await Promise.all(
+          parseHtmlSrcset(exportSrcset).map(async (candidate) => {
+            if (!/^file:/i.test(candidate.url)) {
+              return candidate;
+            }
+
+            const localUri = vscode.Uri.parse(candidate.url, true);
+            const bytes = await fileSizeBytes(localUri).catch(() => 0);
+            if (bytes <= 0 || bytes > maxImageMB * 1024 * 1024) {
+              return candidate;
+            }
+
+            const dataUri = await toDataUri(localUri).catch(() => undefined);
+            if (!dataUri) {
+              return candidate;
+            }
+
+            changed = true;
+            return {
+              url: withSvgFragment(dataUri, localUri),
+              descriptor: candidate.descriptor
+            };
+          })
+        );
+        setHtmlAttribute(
+          parsed.attributes,
+          'srcset',
+          serializeHtmlSrcset(embeddedSrcset)
+        );
+      }
+
+      if (!changed) {
+        return tag;
+      }
+      return serializeHtmlImgTag(parsed.attributes, parsed.selfClosing);
+    });
   }
 
   private rewriteLocalImageSourcesForExport(html: string): string {
-    return html.replace(
-      /(<img[^>]*data-local-src="([^"]+)"[^>]*src=")([^"]*)(")/g,
-      (
-        _match,
-        prefix: string,
-        localSrc: string,
-        _currentSrc: string,
-        suffix: string
-      ) => `${prefix}${localSrc}${suffix}`
-    );
+    return mapHtmlImgTags(html, (tag) => {
+      const parsed = parseHtmlImgTag(tag);
+      if (!parsed) {
+        return tag;
+      }
+
+      const localSrc = getHtmlAttribute(parsed.attributes, OMV_LOCAL_SRC_ATTR)
+        ?.value;
+      const remoteSrc = getHtmlAttribute(parsed.attributes, OMV_REMOTE_SRC_ATTR)
+        ?.value;
+      const exportSrcset = getHtmlAttribute(
+        parsed.attributes,
+        OMV_EXPORT_SRCSET_ATTR
+      )?.value;
+      if (!localSrc && !remoteSrc && !exportSrcset) {
+        return tag;
+      }
+
+      if (localSrc) {
+        setHtmlAttribute(parsed.attributes, 'src', localSrc);
+      } else if (remoteSrc) {
+        setHtmlAttribute(parsed.attributes, 'src', remoteSrc);
+      }
+      if (exportSrcset) {
+        setHtmlAttribute(parsed.attributes, 'srcset', exportSrcset);
+      }
+      return serializeHtmlImgTag(parsed.attributes, parsed.selfClosing);
+    });
   }
 
   private async tryHeadlessPdfExport(

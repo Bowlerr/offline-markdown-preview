@@ -76,17 +76,53 @@ export async function toDataUri(uri: vscode.Uri): Promise<string> {
   return `data:${mime};base64,${bytes.toString('base64')}`;
 }
 
+function stripLocalImageUrlDecoration(src: string): {
+  normalizedSrc: string;
+  fragment?: string;
+} {
+  const hashIndex = src.indexOf('#');
+  const beforeHash = hashIndex >= 0 ? src.slice(0, hashIndex) : src;
+  const queryIndex = beforeHash.indexOf('?');
+
+  return {
+    normalizedSrc:
+      queryIndex >= 0 ? beforeHash.slice(0, queryIndex) : beforeHash,
+    fragment: hashIndex >= 0 ? src.slice(hashIndex + 1) : undefined
+  };
+}
+
+function restoreSvgFragment(
+  uri: vscode.Uri,
+  fragment?: string
+): vscode.Uri {
+  if (!fragment || path.extname(uri.fsPath || uri.path).toLowerCase() !== '.svg') {
+    return uri;
+  }
+  return uri.with({ fragment });
+}
+
 export function resolveImageUri(source: vscode.Uri, src: string): vscode.Uri | undefined {
-  if (!src || isHttpUrl(src) || /^data:/i.test(src) || /^vscode-webview-resource:/i.test(src)) {
+  const { normalizedSrc, fragment } = stripLocalImageUrlDecoration(src);
+  if (
+    !normalizedSrc ||
+    isHttpUrl(normalizedSrc) ||
+    /^data:/i.test(normalizedSrc) ||
+    /^vscode-webview-resource:/i.test(normalizedSrc)
+  ) {
     return undefined;
   }
   const sourceFolder = vscode.workspace.getWorkspaceFolder(source);
-  if (/^file:/i.test(src)) {
-    const parsed = vscode.Uri.parse(src, true);
-    if (!sourceFolder) return parsed;
-    return isWithinWorkspace(parsed, sourceFolder.uri) ? parsed : undefined;
+  if (/^file:/i.test(normalizedSrc)) {
+    const parsed = vscode.Uri.parse(normalizedSrc, true);
+    const resolved = restoreSvgFragment(parsed, fragment);
+    if (!sourceFolder) return resolved;
+    return isWithinWorkspace(parsed, sourceFolder.uri) ? resolved : undefined;
   }
-  const resolved = vscode.Uri.joinPath(source.with({ path: path.posix.dirname(source.path) }), src);
+  const resolvedBase = vscode.Uri.joinPath(
+    source.with({ path: path.posix.dirname(source.path) }),
+    normalizedSrc
+  );
+  const resolved = restoreSvgFragment(resolvedBase, fragment);
   if (!sourceFolder) return resolved;
-  return isWithinWorkspace(resolved, sourceFolder.uri) ? resolved : undefined;
+  return isWithinWorkspace(resolvedBase, sourceFolder.uri) ? resolved : undefined;
 }

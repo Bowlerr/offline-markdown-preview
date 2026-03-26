@@ -245,6 +245,7 @@ function createPreviewPanelTestContext(options: {
   };
 
   const fsMock = {
+    stat: vi.fn().mockResolvedValue({ size: 1024 }),
     readFile: vi
       .fn()
       .mockResolvedValue(options.baseCssText ?? 'body { color: black; }')
@@ -628,6 +629,121 @@ describe('PreviewController custom CSS', () => {
     expect(html.indexOf('<style data-omv-custom-css="1">')).toBeLessThan(
       html.indexOf('<style data-omv-custom-css="2">')
     );
+  });
+
+  it('rewrites local image sources for export regardless of attribute order', async () => {
+    const { module } = await loadPreviewPanelTestModule({
+      workspaceFolderPaths: ['/workspace-a']
+    });
+
+    const controller = new module.PreviewController({
+      extensionUri: Uri.file('/extension'),
+      globalStorageUri: Uri.file('/global-storage')
+    } as any);
+
+    const html = (controller as any).rewriteLocalImageSourcesForExport(
+      '<p><img src="vscode-webview://file:///workspace-a/images/demo.gif" alt="demo" data-omv-local-src="file:///workspace-a/images/demo.gif" /></p>'
+    );
+
+    expect(html).toContain(
+      '<img src="file:///workspace-a/images/demo.gif" alt="demo" data-omv-local-src="file:///workspace-a/images/demo.gif" />'
+    );
+  });
+
+  it('rewrites local image sources for export when quoted attributes contain >', async () => {
+    const { module } = await loadPreviewPanelTestModule({
+      workspaceFolderPaths: ['/workspace-a']
+    });
+
+    const controller = new module.PreviewController({
+      extensionUri: Uri.file('/extension'),
+      globalStorageUri: Uri.file('/global-storage')
+    } as any);
+
+    const html = (controller as any).rewriteLocalImageSourcesForExport(
+      '<p><img data-omv-local-src="file:///workspace-a/images/demo.gif" alt="a > b" src="vscode-webview://file:///workspace-a/images/demo.gif" /></p>'
+    );
+
+    expect(html).toContain(
+      '<img data-omv-local-src="file:///workspace-a/images/demo.gif" alt="a > b" src="file:///workspace-a/images/demo.gif" />'
+    );
+  });
+
+  it('restores blocked local image sources and srcset for export', async () => {
+    const { module } = await loadPreviewPanelTestModule({
+      workspaceFolderPaths: ['/workspace-a']
+    });
+
+    const controller = new module.PreviewController({
+      extensionUri: Uri.file('/extension'),
+      globalStorageUri: Uri.file('/global-storage')
+    } as any);
+
+    const html = (controller as any).rewriteLocalImageSourcesForExport(
+      '<p><img data-omv-local-src="file:///workspace-a/images/demo.gif" src="" data-omv-export-srcset="file:///workspace-a/images/demo.gif 1x, file:///workspace-a/images/demo@2x.gif 2x" srcset="" /></p>'
+    );
+
+    expect(html).toContain(
+      '<img data-omv-local-src="file:///workspace-a/images/demo.gif" src="file:///workspace-a/images/demo.gif" data-omv-export-srcset="file:///workspace-a/images/demo.gif 1x, file:///workspace-a/images/demo@2x.gif 2x" srcset="file:///workspace-a/images/demo.gif 1x, file:///workspace-a/images/demo@2x.gif 2x" />'
+    );
+  });
+
+  it('restores blocked remote image sources and srcset for export', async () => {
+    const { module } = await loadPreviewPanelTestModule({
+      workspaceFolderPaths: ['/workspace-a']
+    });
+
+    const controller = new module.PreviewController({
+      extensionUri: Uri.file('/extension'),
+      globalStorageUri: Uri.file('/global-storage')
+    } as any);
+
+    const html = (controller as any).rewriteLocalImageSourcesForExport(
+      '<p><img data-omv-remote-src="https://example.com/demo.gif" src="" data-omv-export-srcset="https://example.com/demo.gif 1x, https://example.com/demo@2x.gif 2x" srcset="" /></p>'
+    );
+
+    expect(html).toContain(
+      '<img data-omv-remote-src="https://example.com/demo.gif" src="https://example.com/demo.gif" data-omv-export-srcset="https://example.com/demo.gif 1x, https://example.com/demo@2x.gif 2x" srcset="https://example.com/demo.gif 1x, https://example.com/demo@2x.gif 2x" />'
+    );
+  });
+
+  it('ignores authored generic data-remote-src during export rewriting', async () => {
+    const { module } = await loadPreviewPanelTestModule({
+      workspaceFolderPaths: ['/workspace-a']
+    });
+
+    const controller = new module.PreviewController({
+      extensionUri: Uri.file('/extension'),
+      globalStorageUri: Uri.file('/global-storage')
+    } as any);
+
+    const html = (controller as any).rewriteLocalImageSourcesForExport(
+      '<p><img src="https://cdn.example.com/demo.gif" data-remote-src="hero" alt="demo" /></p>'
+    );
+
+    expect(html).toContain(
+      '<img src="https://cdn.example.com/demo.gif" data-remote-src="hero" alt="demo" />'
+    );
+  });
+
+  it('preserves SVG fragments when embedding local images for export', async () => {
+    const { fsMock, module } = await loadPreviewPanelTestModule({
+      workspaceFolderPaths: ['/workspace-a']
+    });
+
+    fsMock.readFile.mockResolvedValueOnce(Buffer.from('<svg />'));
+
+    const controller = new module.PreviewController({
+      extensionUri: Uri.file('/extension'),
+      globalStorageUri: Uri.file('/global-storage')
+    } as any);
+
+    const html = await (controller as any).embedLocalImages(
+      '<p><img data-omv-local-src="file:///workspace-a/images/icons.svg#logo" src="file:///workspace-a/images/icons.svg#logo" /></p>',
+      24
+    );
+
+    expect(html).toContain('src="data:image/svg+xml;base64,PHN2ZyAvPg==#logo"');
   });
 
   it('hydrates new webviews with the saved preview UI toggle state', async () => {

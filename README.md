@@ -82,7 +82,7 @@ These VS Code settings control rendering, safety, and performance:
 - `offlineMarkdownViewer.preview.autoOpen` (default: `true`): auto-open/reuse preview when a Markdown editor becomes active.
 - `offlineMarkdownViewer.preview.allowRemoteImages` (default: `false`): allow loading remote `http(s)` images in preview. When off, remote images are shown as a download action and cached locally for preview use.
 - `offlineMarkdownViewer.preview.useMarkdownPreviewGithubStyling` (default: `false`): load CSS from the installed `bierner.markdown-preview-github-styles` extension before any configured custom CSS, while respecting that extension's `colorTheme`, `lightTheme`, and `darkTheme` settings.
-- `offlineMarkdownViewer.preview.maxImageMB` (default: `8`): maximum local image size loaded into preview.
+- `offlineMarkdownViewer.preview.maxImageMB` (default: `24`): maximum local image size loaded into preview.
 - `offlineMarkdownViewer.export.embedImages` (default: `false`): embed local images as data URIs for HTML export (privacy warning shown).
 - `offlineMarkdownViewer.performance.debounceMs` (default: `120`): debounce delay for live preview updates.
 - `offlineMarkdownViewer.preview.globalCustomCssPath` (default: `""`): absolute path to a user-level `.css` file appended to every preview.
