@@ -58,4 +58,18 @@ describe('htmlImageTags', () => {
       }
     ]);
   });
+
+  it('splits comma-separated candidates even when no whitespace follows the comma', () => {
+    const srcset = 'small.jpg,large.jpg 2x';
+
+    expect(parseHtmlSrcset(srcset)).toEqual([
+      {
+        url: 'small.jpg'
+      },
+      {
+        url: 'large.jpg',
+        descriptor: '2x'
+      }
+    ]);
+  });
 });

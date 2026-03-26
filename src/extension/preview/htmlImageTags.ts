@@ -202,6 +202,46 @@ function looksLikeSrcsetUrlStart(value: string): boolean {
   return !/[<>"'=]/.test(match[1]);
 }
 
+function looksLikeStandaloneSrcsetUrl(value: string): boolean {
+  const trimmed = value.trim();
+  if (!trimmed || /[\s,]/.test(trimmed)) {
+    return false;
+  }
+
+  return (
+    /^(?:https?:|file:)/i.test(trimmed) ||
+    /^[^/?#,\s]+\.[a-z0-9]{1,8}(?:[?#][^,\s]*)?$/i.test(trimmed) ||
+    /\/[^/?#,\s]+\.[a-z0-9]{1,8}(?:[?#][^,\s]*)?$/i.test(trimmed)
+  );
+}
+
+function findImplicitSrcsetCandidateSplit(
+  url: string,
+  descriptor?: string
+): number {
+  if (!descriptor || !isValidSrcsetDescriptorSequence(descriptor)) {
+    return -1;
+  }
+
+  for (let index = 0; index < url.length; index += 1) {
+    if (url[index] !== ',') {
+      continue;
+    }
+
+    const left = url.slice(0, index);
+    const right = url.slice(index + 1);
+    const rightSegment = right.split(',')[0] ?? '';
+    if (
+      looksLikeStandaloneSrcsetUrl(left) &&
+      looksLikeStandaloneSrcsetUrl(rightSegment)
+    ) {
+      return index;
+    }
+  }
+
+  return -1;
+}
+
 function parseDataSrcsetCandidate(
   value: string,
   startIndex: number
@@ -308,6 +348,13 @@ export function parseHtmlSrcset(value: string): HtmlSrcsetCandidate[] {
     const descriptor = value
       .slice(url.length + urlStart, descriptorEnd)
       .trim();
+
+    const implicitSplit = findImplicitSrcsetCandidateSplit(url, descriptor);
+    if (implicitSplit >= 0) {
+      candidates.push({ url: url.slice(0, implicitSplit) });
+      index = urlStart + implicitSplit + 1;
+      continue;
+    }
 
     if (
       url.endsWith(',') &&
