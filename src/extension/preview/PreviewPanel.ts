@@ -862,9 +862,7 @@ export class PreviewController implements vscode.Disposable {
     if (!panel || !editor || editor.document.languageId !== 'markdown') return;
 
     const settings = getSettings(editor.document.uri);
-    if (await this.refreshWebviewShellIfNeeded(editor.document.uri, settings)) {
-      return;
-    }
+    await this.refreshWebviewShellIfNeeded(editor.document.uri, settings);
     if (!settings.sanitizeHtml) {
       if (!this.unsafeHtmlAcknowledged) {
         if (!(await confirmSanitizeDisabled(editor.document.uri))) {

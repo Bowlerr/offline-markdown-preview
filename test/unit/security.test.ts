@@ -6,9 +6,6 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { createVscodeMock } from './helpers/vscodeMock';
 
-type SecurityModule =
-  typeof import('../../src/extension/preview/markdown/security');
-
 const tempDirs: string[] = [];
 
 async function makeTempDir(): Promise<string> {
@@ -71,11 +68,7 @@ async function loadSecurity(
     globalCustomCssPath?: string;
     workspaceCustomCssPath?: string;
   } = {}
-): Promise<{
-  security: SecurityModule;
-  vscodeMock: ReturnType<typeof createConfiguredVscodeMock>;
-  warnings: string[];
-}> {
+) {
   vi.resetModules();
   const warnings: string[] = [];
   const vscodeMock = createConfiguredVscodeMock({ ...options, warnings });
