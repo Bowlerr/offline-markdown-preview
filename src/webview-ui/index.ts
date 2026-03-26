@@ -231,7 +231,11 @@ window.addEventListener('keydown', (event) => {
     event.key.toLowerCase() === 'f'
   ) {
     event.preventDefault();
-    setSearchUiVisible(true, { focus: true, select: true });
+    setSearchUiVisible(true, {
+      focus: true,
+      select: true,
+      persistPreference: true
+    });
     persistState();
   }
 });
@@ -273,7 +277,11 @@ async function handleMessage(
     }
     case 'searchCommand': {
       if (message.action === 'open') {
-        setSearchUiVisible(true, { focus: true, select: true });
+        setSearchUiVisible(true, {
+          focus: true,
+          select: true,
+          persistPreference: true
+        });
       } else if (message.action === 'next') {
         search.next();
       } else if (message.action === 'prev') {
