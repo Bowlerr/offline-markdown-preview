@@ -1718,6 +1718,10 @@ export class PreviewController implements vscode.Disposable {
       baseCss =
         'body{font-family:sans-serif;padding:1rem;max-width:900px;margin:0 auto;}';
     }
+    const customCss = await resolveCustomCss(sourceUri);
+    const customCssTag = customCss.cssText
+      ? inlineCssTag(customCss.cssText, 'omv-export-custom-css')
+      : '';
 
     const frontmatter =
       settings.showFrontmatter && this.state.snapshot?.frontmatter
@@ -1731,6 +1735,7 @@ export class PreviewController implements vscode.Disposable {
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>${escapeHtml(path.basename(sourceUri.fsPath))}</title>
 <style>${baseCss}</style>
+${customCssTag}
 </head>
 <body>
 ${frontmatter}

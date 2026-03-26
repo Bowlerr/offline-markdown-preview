@@ -52,6 +52,7 @@ function createPreviewPanelTestContext(options: {
   quickPickLabel?: string;
   openDialogPath?: string;
   customCssUris?: InstanceType<typeof Uri>[];
+  baseCssText?: string;
 }) {
   const workspaceFolders = options.workspaceFolderPaths.map(createWorkspaceFolder);
   const textDocumentChange = createEventHook<{
@@ -202,16 +203,23 @@ function createPreviewPanelTestContext(options: {
           ? Uri.file(options.workspaceFolderPaths[0])
           : undefined
     ),
-    inlineCssTag: vi.fn(() => ''),
+    inlineCssTag: vi.fn((cssText: string) => `<style>${cssText}</style>`),
     resolveCustomCss: vi.fn(async () => ({
       key: 'custom-css',
       cssText: undefined
     }))
   };
 
+  const fsMock = {
+    readFile: vi.fn().mockResolvedValue(
+      options.baseCssText ?? 'body { color: black; }'
+    )
+  };
+
   return {
     changeTextDocument: textDocumentChange.fire,
     closeTextDocument: textDocumentClose.fire,
+    fsMock,
     renderMarkdown: vi.fn(() => ({
       html: '<p>Rendered</p>',
       toc: [],
@@ -229,6 +237,7 @@ async function loadPreviewPanelTestModule(
 ) {
   vi.resetModules();
   const context = createPreviewPanelTestContext(options);
+  vi.doMock('node:fs/promises', () => context.fsMock);
   vi.doMock('vscode', () => context.vscodeMock);
   vi.doMock('../../src/extension/preview/markdown/markdownPipeline', () => ({
     renderMarkdown: context.renderMarkdown
@@ -432,5 +441,38 @@ describe('PreviewController custom CSS', () => {
       cssText: '.omv-content { color: red; }'
     });
     expect(renderMarkdown).not.toHaveBeenCalled();
+  });
+
+  it('includes configured custom CSS in standalone export HTML', async () => {
+    const { module, securityMock } = await loadPreviewPanelTestModule({
+      workspaceFolderPaths: ['/workspace-a']
+    });
+
+    securityMock.resolveCustomCss.mockResolvedValue({
+      key: 'export-custom-css',
+      cssText: '.omv-content { color: red; }'
+    });
+
+    const controller = new module.PreviewController({
+      extensionUri: Uri.file('/extension'),
+      globalStorageUri: Uri.file('/global-storage')
+    } as any);
+
+    const html = await (controller as any).buildStandaloneHtml(
+      '<p>Rendered</p>',
+      Uri.file('/workspace-a/doc.md'),
+      {
+        showFrontmatter: false
+      }
+    );
+
+    expect(securityMock.resolveCustomCss).toHaveBeenCalledWith(
+      Uri.file('/workspace-a/doc.md')
+    );
+    expect(html).toContain('<style>body { color: black; }</style>');
+    expect(html).toContain('<style>.omv-content { color: red; }</style>');
+    expect(html.indexOf('<style>body { color: black; }</style>')).toBeLessThan(
+      html.indexOf('<style>.omv-content { color: red; }</style>')
+    );
   });
 });
