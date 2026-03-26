@@ -131,6 +131,12 @@ export interface SearchRequestMessage {
   query?: string;
 }
 
+export interface UiStateChangedMessage {
+  type: 'uiStateChanged';
+  searchUiVisible: boolean;
+  tocVisible: boolean;
+}
+
 export interface PdfExportResultMessage {
   type: 'pdfExportResult';
   ok: boolean;
@@ -165,6 +171,7 @@ export type WebviewToExtensionMessage =
   | HeadingSelectedMessage
   | CopyHeadingLinkMessage
   | SearchRequestMessage
+  | UiStateChangedMessage
   | PdfExportResultMessage
   | OpenImageMessage
   | DownloadRemoteImageMessage

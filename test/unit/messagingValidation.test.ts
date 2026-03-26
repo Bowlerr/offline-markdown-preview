@@ -34,6 +34,19 @@ describe('messaging validation', () => {
     });
   });
 
+  it('accepts preview UI state change messages', () => {
+    const msg = parseWebviewMessage({
+      type: 'uiStateChanged',
+      searchUiVisible: false,
+      tocVisible: true
+    });
+    expect(msg).toMatchObject({
+      type: 'uiStateChanged',
+      searchUiVisible: false,
+      tocVisible: true
+    });
+  });
+
   it('accepts valid extension render message', () => {
     const msg = parseExtensionMessage({
       type: 'render',

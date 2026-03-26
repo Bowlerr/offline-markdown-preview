@@ -27,6 +27,15 @@ interface ViewState {
   tocVisible?: boolean;
 }
 
+interface BootData {
+  platform?: string;
+  styleNonce?: string;
+  initialUiState?: {
+    searchUiVisible?: boolean;
+    tocVisible?: boolean;
+  };
+}
+
 const CUSTOM_CSS_STYLE_SELECTOR = 'style[data-omv-custom-css="true"]';
 
 const vscode = acquireVsCodeApi();
@@ -83,10 +92,12 @@ if (
 }
 
 const state = (vscode.getState() as ViewState | undefined) ?? {};
+const boot = getBootData();
 
 let lastRender: RenderPayload | undefined;
-let searchUiVisible = state.searchUiVisible ?? true;
-let tocVisible = state.tocVisible ?? true;
+let searchUiVisible =
+  state.searchUiVisible ?? boot.initialUiState?.searchUiVisible ?? true;
+let tocVisible = state.tocVisible ?? boot.initialUiState?.tocVisible ?? true;
 
 const renderer = new PreviewRenderer(article, {
   onOpenLink(href, kindHint) {
@@ -158,7 +169,8 @@ for (const btn of root.querySelectorAll<HTMLButtonElement>(
     const target = btn.dataset.uiToggle;
     if (target === 'search') {
       setSearchUiVisible(!searchUiVisible, {
-        focus: searchUiVisible ? false : true
+        focus: searchUiVisible ? false : true,
+        persistPreference: true
       });
     }
     if (target === 'toc') {
@@ -324,9 +336,13 @@ function applyCustomCss(cssTexts: string[]): void {
 }
 
 function getBootStyleNonce(): string | undefined {
-  const boot = (window as Window & { __OMV_BOOT__?: { styleNonce?: string } })
-    .__OMV_BOOT__;
+  const boot = getBootData();
   return boot?.styleNonce;
+}
+
+function getBootData(): BootData {
+  return ((window as Window & { __OMV_BOOT__?: BootData }).__OMV_BOOT__ ??
+    {}) as BootData;
 }
 
 function persistState(): void {
@@ -339,10 +355,15 @@ function persistState(): void {
 
 function setSearchUiVisible(
   visible: boolean,
-  options: { focus?: boolean; select?: boolean } = {}
+  options: { focus?: boolean; select?: boolean; persistPreference?: boolean } = {}
 ): void {
-  searchUiVisible = visible;
-  applyUiVisibility();
+  if (searchUiVisible !== visible) {
+    searchUiVisible = visible;
+    applyUiVisibility();
+    if (options.persistPreference) {
+      persistUiPreference();
+    }
+  }
   if (visible && options.focus) {
     searchInput.focus();
     if (options.select) {
@@ -352,8 +373,19 @@ function setSearchUiVisible(
 }
 
 function setTocVisible(visible: boolean): void {
-  tocVisible = visible;
-  applyUiVisibility();
+  if (tocVisible !== visible) {
+    tocVisible = visible;
+    applyUiVisibility();
+    persistUiPreference();
+  }
+}
+
+function persistUiPreference(): void {
+  vscode.postMessage({
+    type: 'uiStateChanged',
+    searchUiVisible,
+    tocVisible
+  });
 }
 
 function applyUiVisibility(): void {

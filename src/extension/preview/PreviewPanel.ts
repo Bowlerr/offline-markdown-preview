@@ -34,6 +34,11 @@ interface PreviewPanelState {
   toc: TocItem[];
 }
 
+interface PreviewUiState {
+  searchUiVisible: boolean;
+  tocVisible: boolean;
+}
+
 interface HtmlExportSnapshotData {
   html: string;
   themeVariables?: Record<string, string>;
@@ -136,6 +141,12 @@ function buildGitHubMarkdownStyleAttributes(enabled: boolean): string {
   return ` data-color-mode="${githubStyle.colorMode}" data-light-theme="${githubStyle.lightTheme}" data-dark-theme="${githubStyle.darkTheme}"`;
 }
 
+const PREVIEW_UI_STATE_KEY = 'preview.uiState';
+const DEFAULT_PREVIEW_UI_STATE: PreviewUiState = {
+  searchUiVisible: true,
+  tocVisible: true
+};
+
 export class MarkdownOutlineProvider
   implements vscode.TreeDataProvider<TocItem>, vscode.Disposable
 {
@@ -180,6 +191,7 @@ export class PreviewController implements vscode.Disposable {
   private panel: vscode.WebviewPanel | undefined;
   private currentEditor: vscode.TextEditor | undefined;
   private state: PreviewPanelState = { toc: [] };
+  private previewUiState: PreviewUiState;
   private renderRequestId = 0;
   private renderTimer: NodeJS.Timeout | undefined;
   private suppressEditorScrollUntil = 0;
@@ -209,6 +221,7 @@ export class PreviewController implements vscode.Disposable {
   readonly onOutlineChanged = this.outlineEmitter.event;
 
   constructor(private readonly context: vscode.ExtensionContext) {
+    this.previewUiState = this.readPreviewUiState();
     this.disposables.push(
       vscode.workspace.onDidChangeTextDocument((e) => {
         if (!this.currentEditor) {
@@ -1151,6 +1164,13 @@ export class PreviewController implements vscode.Disposable {
         // Search runs in webview UI; command exists for future extension-driven search actions.
         break;
       }
+      case 'uiStateChanged': {
+        await this.updatePreviewUiState({
+          searchUiVisible: message.searchUiVisible,
+          tocVisible: message.tocVisible
+        });
+        break;
+      }
       case 'pdfExportResult': {
         if (!message.ok && message.error) {
           void vscode.window.showWarningMessage(
@@ -1259,11 +1279,38 @@ export class PreviewController implements vscode.Disposable {
 <body>
   <div id="app"></div>
   <script nonce="${nonce}">
-    window.__OMV_BOOT__ = { platform: ${JSON.stringify(process.platform)}, styleNonce: ${JSON.stringify(nonce)} };
+    window.__OMV_BOOT__ = {
+      platform: ${JSON.stringify(process.platform)},
+      styleNonce: ${JSON.stringify(nonce)},
+      initialUiState: ${JSON.stringify(this.previewUiState)}
+    };
   </script>
   <script nonce="${nonce}" src="${scriptUri}"></script>
 </body>
 </html>`;
+  }
+
+  private readPreviewUiState(): PreviewUiState {
+    const saved = this.context.globalState?.get<Partial<PreviewUiState>>(
+      PREVIEW_UI_STATE_KEY
+    );
+    return {
+      searchUiVisible:
+        saved?.searchUiVisible ?? DEFAULT_PREVIEW_UI_STATE.searchUiVisible,
+      tocVisible: saved?.tocVisible ?? DEFAULT_PREVIEW_UI_STATE.tocVisible
+    };
+  }
+
+  private async updatePreviewUiState(next: PreviewUiState): Promise<void> {
+    if (
+      this.previewUiState.searchUiVisible === next.searchUiVisible &&
+      this.previewUiState.tocVisible === next.tocVisible
+    ) {
+      return;
+    }
+
+    this.previewUiState = next;
+    await this.context.globalState?.update?.(PREVIEW_UI_STATE_KEY, next);
   }
 
   private async refreshWebviewShellIfNeeded(
