@@ -151,31 +151,57 @@ function getGlobalCustomCssUri(globalPath: string | undefined): vscode.Uri | und
   return vscode.Uri.file(globalPath);
 }
 
-function getWorkspaceCustomCssUri(
+function getWorkspaceCustomCssUris(
   config: CustomCssConfig
-): vscode.Uri | undefined {
-  if (!config.workspacePath || !config.workspaceScope || !config.workspaceBaseUri) {
-    return undefined;
+): vscode.Uri[] {
+  if (!config.workspacePath || !config.workspaceScope) {
+    return [];
   }
 
-  const target = vscode.Uri.joinPath(config.workspaceBaseUri, config.workspacePath);
-  if (path.extname(target.fsPath).toLowerCase() !== '.css') {
-    return undefined;
+  const candidateBases: Array<{
+    baseUri: vscode.Uri;
+    mode: 'workspace' | 'workspaceFolder';
+  }> = [];
+  if (config.workspaceScope === 'workspace' && config.workspaceBaseUri) {
+    candidateBases.push({
+      baseUri: config.workspaceBaseUri,
+      mode: 'workspace'
+    });
+  }
+  if (config.workspaceFolder) {
+    candidateBases.push({
+      baseUri: config.workspaceFolder.uri,
+      mode: 'workspaceFolder'
+    });
   }
 
-  if (
-    config.workspaceScope === 'workspaceFolder' &&
-    config.workspaceFolder &&
-    !isUriWithinFolder(target, config.workspaceFolder)
-  ) {
-    return undefined;
+  const seen = new Set<string>();
+  const targets: vscode.Uri[] = [];
+  for (const candidate of candidateBases) {
+    const target = vscode.Uri.joinPath(candidate.baseUri, config.workspacePath);
+    if (path.extname(target.fsPath).toLowerCase() !== '.css') {
+      continue;
+    }
+
+    const isAllowed =
+      candidate.mode === 'workspace'
+        ? isUriWithinWorkspace(target)
+        : config.workspaceFolder
+          ? isUriWithinFolder(target, config.workspaceFolder)
+          : false;
+    if (!isAllowed) {
+      continue;
+    }
+
+    const key = target.toString();
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    targets.push(target);
   }
 
-  if (config.workspaceScope === 'workspace' && !isUriWithinWorkspace(target)) {
-    return undefined;
-  }
-
-  return target;
+  return targets;
 }
 
 async function readGlobalCustomCss(
@@ -211,27 +237,31 @@ async function readWorkspaceCustomCss(
     return undefined;
   }
 
-  const target = getWorkspaceCustomCssUri(config);
-  if (!target) {
+  const targets = getWorkspaceCustomCssUris(config);
+  if (targets.length === 0) {
     void vscode.window.showWarningMessage(
       'Ignoring custom CSS path because it is not a workspace-local .css file.'
     );
     return undefined;
   }
 
-  const openDocumentText = getOpenDocumentText(target);
-  if (openDocumentText !== undefined) {
-    return openDocumentText;
+  for (const target of targets) {
+    const openDocumentText = getOpenDocumentText(target);
+    if (openDocumentText !== undefined) {
+      return openDocumentText;
+    }
+
+    try {
+      return await fs.readFile(target.fsPath, 'utf8');
+    } catch {
+      // Try the next compatible location before warning.
+    }
   }
 
-  try {
-    return await fs.readFile(target.fsPath, 'utf8');
-  } catch {
-    void vscode.window.showWarningMessage(
-      `Could not read custom CSS file: ${config.workspacePath}`
-    );
-    return undefined;
-  }
+  void vscode.window.showWarningMessage(
+    `Could not read custom CSS file: ${config.workspacePath}`
+  );
+  return undefined;
 }
 
 export function getConfiguredCustomCssUris(
@@ -240,7 +270,7 @@ export function getConfiguredCustomCssUris(
   const config = getCustomCssConfig(documentUri);
   const targets = [
     getGlobalCustomCssUri(config.globalPath),
-    getWorkspaceCustomCssUri(config)
+    ...getWorkspaceCustomCssUris(config)
   ].filter((target): target is vscode.Uri => Boolean(target));
   return targets;
 }

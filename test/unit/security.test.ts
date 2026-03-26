@@ -233,6 +233,50 @@ describe('security helpers', () => {
     expect(warnings).toEqual([]);
   });
 
+  it('falls back to the active folder for legacy workspace-scoped paths in saved multi-root workspaces', async () => {
+    const workspaceRoot = await makeTempDir();
+    const workspaceA = path.join(workspaceRoot, 'workspace-a');
+    const workspaceB = path.join(workspaceRoot, 'workspace-b');
+    const workspaceFilePath = path.join(workspaceRoot, 'demo.code-workspace');
+    const cssPath = path.join(workspaceA, 'styles', 'preview.css');
+    await fs.mkdir(workspaceB, { recursive: true });
+    await fs.mkdir(path.dirname(cssPath), { recursive: true });
+    await fs.writeFile(cssPath, '.markdown-body { color: teal; }', 'utf8');
+
+    const { security, vscodeMock, warnings } = await loadSecurity({
+      workspaceFolderPaths: [workspaceA, workspaceB],
+      workspaceFilePath,
+      workspaceCustomCssPath: 'styles/preview.css'
+    });
+    const result = await security.resolveCustomCss(
+      vscodeMock.Uri.file(path.join(workspaceA, 'doc.md'))
+    );
+
+    expect(result.cssText).toBe('.markdown-body { color: teal; }');
+    expect(warnings).toEqual([]);
+  });
+
+  it('falls back to the active folder for workspace-scoped paths in untitled multi-root workspaces', async () => {
+    const workspaceRoot = await makeTempDir();
+    const workspaceA = path.join(workspaceRoot, 'workspace-a');
+    const workspaceB = path.join(workspaceRoot, 'workspace-b');
+    const cssPath = path.join(workspaceA, 'styles', 'preview.css');
+    await fs.mkdir(workspaceB, { recursive: true });
+    await fs.mkdir(path.dirname(cssPath), { recursive: true });
+    await fs.writeFile(cssPath, '.markdown-body { color: navy; }', 'utf8');
+
+    const { security, vscodeMock, warnings } = await loadSecurity({
+      workspaceFolderPaths: [workspaceA, workspaceB],
+      workspaceCustomCssPath: 'styles/preview.css'
+    });
+    const result = await security.resolveCustomCss(
+      vscodeMock.Uri.file(path.join(workspaceA, 'doc.md'))
+    );
+
+    expect(result.cssText).toBe('.markdown-body { color: navy; }');
+    expect(warnings).toEqual([]);
+  });
+
   it('lets a folder-level empty value disable inherited workspace CSS', async () => {
     const workspaceRoot = await makeTempDir();
     const workspaceA = path.join(workspaceRoot, 'workspace-a');
