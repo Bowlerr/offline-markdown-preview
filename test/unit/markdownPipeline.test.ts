@@ -354,9 +354,8 @@ describe('markdownPipeline', () => {
       'srcset="vscode-webview://file:///workspace/.omv-cache/image.gif 1x"'
     );
     expect(result.html).toContain(
-      'data-export-srcset="file:///workspace/.omv-cache/image.gif 1x"'
+      'data-export-srcset="file:///workspace/.omv-cache/image.gif 1x, https://example.com/image@2x.gif 2x"'
     );
-    expect(result.html).not.toContain('https://example.com/image@2x.gif');
   });
 
   it('ignores img-like text inside other HTML attribute values', () => {
@@ -383,6 +382,63 @@ describe('markdownPipeline', () => {
     );
     expect(result.html).not.toContain('data-local-src=');
     expect(result.html).toContain('data-kind="example"');
+  });
+
+  it('does not rewrite img-like text inside raw-text HTML elements', () => {
+    const sourceUri = Uri.file('/workspace/docs/readme.md');
+    const webview = {
+      asWebviewUri(uri: { toString(): string }) {
+        return { toString: () => `vscode-webview://${uri.toString()}` };
+      }
+    };
+
+    const input = [
+      '<textarea><img src="images/scroll.gif" alt="demo" /></textarea>',
+      '<script type="application/json">{"html":"<img src=\\"images/scroll.gif\\" alt=\\"demo\\" />"}</script>'
+    ].join('\n');
+
+    const result = renderMarkdown(input, {
+      sourceUri,
+      webview: webview as any,
+      allowHtml: true,
+      allowRemoteImages: false,
+      maxImageMB: 100
+    });
+
+    expect(result.html).toContain(
+      '<textarea><img src="images/scroll.gif" alt="demo" /></textarea>'
+    );
+    expect(result.html).toContain(
+      '<script type="application/json">{"html":"<img src=\\"images/scroll.gif\\" alt=\\"demo\\" />"}</script>'
+    );
+    expect(result.html).not.toContain('data-local-src=');
+  });
+
+  it('preserves blocked remote srcset candidates for export metadata', () => {
+    const sourceUri = Uri.file('/workspace/docs/readme.md');
+    const webview = {
+      asWebviewUri(uri: { toString(): string }) {
+        return { toString: () => `vscode-webview://${uri.toString()}` };
+      }
+    };
+
+    const result = renderMarkdown(
+      '<img src="images/scroll.gif" srcset="images/scroll.gif 1x, https://cdn.example.com/scroll@2x.gif 2x" />',
+      {
+        sourceUri,
+        webview: webview as any,
+        allowHtml: true,
+        allowRemoteImages: false,
+        maxImageMB: 100
+      }
+    );
+
+    expect(result.html).toContain(
+      'srcset="vscode-webview://file:///workspace/docs/images/scroll.gif 1x"'
+    );
+    expect(result.html).toContain(
+      'data-export-srcset="file:///workspace/docs/images/scroll.gif 1x, https://cdn.example.com/scroll@2x.gif 2x"'
+    );
   });
 
   it('preserves data URL srcset candidates when rewriting raw HTML images', () => {

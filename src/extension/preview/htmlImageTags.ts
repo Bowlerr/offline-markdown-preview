@@ -298,6 +298,48 @@ function findHtmlImgTagEnd(html: string, fromIndex: number): number {
   return -1;
 }
 
+function findTagEnd(html: string, fromIndex: number): number {
+  let quote: '"' | "'" | undefined;
+
+  for (let index = fromIndex; index < html.length; index += 1) {
+    const char = html[index];
+    if (quote) {
+      if (char === quote) {
+        quote = undefined;
+      }
+      continue;
+    }
+
+    if (char === '"' || char === "'") {
+      quote = char;
+      continue;
+    }
+
+    if (char === '>') {
+      return index;
+    }
+  }
+
+  return -1;
+}
+
+function getLiteralContentTagName(tag: string): string | undefined {
+  const match = /^<([a-z0-9:-]+)/i.exec(tag);
+  if (!match) {
+    return undefined;
+  }
+
+  switch (match[1].toLowerCase()) {
+    case 'script':
+    case 'style':
+    case 'textarea':
+    case 'title':
+      return match[1];
+    default:
+      return undefined;
+  }
+}
+
 function findHtmlImgTagStart(html: string, fromIndex: number): number {
   let insideTag = false;
   let quote: '"' | "'" | undefined;
@@ -326,6 +368,23 @@ function findHtmlImgTagStart(html: string, fromIndex: number): number {
 
     if (/^<img\b/i.test(html.slice(index))) {
       return index;
+    }
+
+    const tagEnd = findTagEnd(html, index + 1);
+    if (tagEnd < 0) {
+      return -1;
+    }
+
+    const tag = html.slice(index, tagEnd + 1);
+    const literalTagName = getLiteralContentTagName(tag);
+    if (literalTagName) {
+      const closePattern = new RegExp(`</${literalTagName}\\s*>`, 'i');
+      const closeIndex = html.slice(tagEnd + 1).search(closePattern);
+      if (closeIndex < 0) {
+        return -1;
+      }
+      index = tagEnd + closeIndex + literalTagName.length + 3;
+      continue;
     }
 
     insideTag = true;

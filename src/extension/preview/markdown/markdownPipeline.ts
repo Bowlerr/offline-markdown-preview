@@ -151,6 +151,7 @@ function rewriteSrcsetAttribute(
     }
 
     if (/^https?:\/\//i.test(candidate.url) && !options.allowRemoteImages) {
+      exportCandidates.push(candidate);
       changed = true;
       continue;
     }
