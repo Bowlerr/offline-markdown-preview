@@ -40,18 +40,26 @@ export class Uri {
 }
 
 export function createVscodeMock(workspaceRoot?: string) {
+  const workspaceFolderPaths = workspaceRoot ? [workspaceRoot] : [];
+  const workspaceFolders = workspaceFolderPaths.map((rootPath) => ({
+    name: path.basename(rootPath),
+    uri: Uri.file(rootPath)
+  }));
+
   return {
     Uri,
     workspace: {
+      workspaceFile: undefined,
+      workspaceFolders,
       textDocuments: [],
       getWorkspaceFolder(uri: Uri) {
-        if (!workspaceRoot) return undefined;
-        const root = Uri.file(workspaceRoot);
-        const rel = path.relative(root.fsPath, uri.fsPath);
-        if (rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel))) {
-          return { uri: root };
-        }
-        return undefined;
+        return workspaceFolders.find((folder) => {
+          const rel = path.relative(folder.uri.fsPath, uri.fsPath);
+          return (
+            rel === '' ||
+            (!rel.startsWith('..') && !path.isAbsolute(rel))
+          );
+        });
       }
     }
   };

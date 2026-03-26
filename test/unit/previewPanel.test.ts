@@ -46,6 +46,7 @@ function createWorkspaceFolder(fsPath: string) {
 
 function createPreviewPanelTestContext(options: {
   workspaceFolderPaths: string[];
+  workspaceFilePath?: string;
   activeEditorPath?: string;
   quickPickLabel?: string;
   openDialogPath?: string;
@@ -93,6 +94,9 @@ function createPreviewPanelTestContext(options: {
   });
 
   const workspace = {
+    workspaceFile: options.workspaceFilePath
+      ? Uri.file(options.workspaceFilePath)
+      : undefined,
     workspaceFolders,
     textDocuments: [],
     getWorkspaceFolder(uri: InstanceType<typeof Uri>) {
@@ -190,6 +194,13 @@ function createPreviewPanelTestContext(options: {
     getConfiguredCustomCssUris: vi.fn(
       () => options.customCssUris ?? []
     ),
+    getWorkspaceCustomCssBaseUri: vi.fn(() =>
+      options.workspaceFilePath
+        ? Uri.file(path.dirname(options.workspaceFilePath))
+        : options.workspaceFolderPaths.length === 1
+          ? Uri.file(options.workspaceFolderPaths[0])
+          : undefined
+    ),
     inlineCssTag: vi.fn(() => ''),
     resolveCustomCss: vi.fn(async () => ({
       key: 'custom-css',
@@ -226,10 +237,11 @@ afterEach(() => {
 describe('PreviewController custom CSS', () => {
   it('writes workspace custom CSS to workspace settings', async () => {
     const { module, update, vscodeMock } = await loadPreviewPanelTestModule({
-      workspaceFolderPaths: ['/workspace-a', '/workspace-b'],
-      activeEditorPath: '/workspace-a/doc.md',
+      workspaceFolderPaths: ['/workspace-root/workspace-a', '/workspace-root/workspace-b'],
+      workspaceFilePath: '/workspace-root/demo.code-workspace',
+      activeEditorPath: '/workspace-root/workspace-a/doc.md',
       quickPickLabel: 'Set Workspace Custom CSS',
-      openDialogPath: '/workspace-a/styles/preview.css'
+      openDialogPath: '/workspace-root/workspace-a/styles/preview.css'
     });
 
     const controller = new module.PreviewController({
@@ -241,7 +253,7 @@ describe('PreviewController custom CSS', () => {
 
     expect(update).toHaveBeenCalledWith(
       'preview.customCssPath',
-      'styles/preview.css',
+      'workspace-a/styles/preview.css',
       vscodeMock.ConfigurationTarget.Workspace
     );
   });

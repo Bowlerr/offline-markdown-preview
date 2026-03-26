@@ -8,9 +8,13 @@ export interface ResolvedCustomCss {
   key: string;
 }
 
+type CustomCssScope = 'workspace' | 'workspaceFolder';
+
 interface CustomCssConfig {
   globalPath?: string;
   workspacePath?: string;
+  workspaceScope?: CustomCssScope;
+  workspaceBaseUri?: vscode.Uri;
   workspaceFolder?: vscode.WorkspaceFolder;
 }
 
@@ -49,27 +53,73 @@ function normalizeConfiguredPath(
   return trimmed ? trimmed : undefined;
 }
 
+export function getWorkspaceCustomCssBaseUri(): vscode.Uri | undefined {
+  const workspaceFile = vscode.workspace.workspaceFile;
+  if (workspaceFile?.scheme === 'file') {
+    return vscode.Uri.file(path.dirname(workspaceFile.fsPath));
+  }
+
+  if ((vscode.workspace.workspaceFolders?.length ?? 0) === 1) {
+    return vscode.workspace.workspaceFolders?.[0]?.uri;
+  }
+
+  return undefined;
+}
+
+function isUriWithinFolder(
+  target: vscode.Uri,
+  folder: vscode.WorkspaceFolder
+): boolean {
+  const relative = path.relative(folder.uri.fsPath, target.fsPath);
+  return (
+    relative === '' ||
+    (!relative.startsWith('..') && !path.isAbsolute(relative))
+  );
+}
+
+function isUriWithinWorkspace(target: vscode.Uri): boolean {
+  return (vscode.workspace.workspaceFolders ?? []).some((folder) =>
+    isUriWithinFolder(target, folder)
+  );
+}
+
 function getCustomCssConfig(documentUri: vscode.Uri): CustomCssConfig {
   const cfg = vscode.workspace.getConfiguration(
     'offlineMarkdownViewer',
     documentUri
   );
+  const workspaceFolder = vscode.workspace.getWorkspaceFolder(documentUri);
+  const customCssInspect = cfg.inspect<string>('preview.customCssPath');
+  const workspaceFolderPath = normalizeConfiguredPath(
+    customCssInspect?.workspaceFolderValue
+  );
+  const workspacePath = normalizeConfiguredPath(customCssInspect?.workspaceValue);
+
   return {
     globalPath: normalizeConfiguredPath(
       cfg.inspect<string>('preview.globalCustomCssPath')?.globalValue
     ),
-    workspacePath: normalizeConfiguredPath(
-      cfg.inspect<string>('preview.customCssPath')?.workspaceFolderValue ??
-        cfg.inspect<string>('preview.customCssPath')?.workspaceValue
-    ),
-    workspaceFolder: vscode.workspace.getWorkspaceFolder(documentUri)
+    workspacePath: workspaceFolderPath ?? workspacePath,
+    workspaceScope: workspaceFolderPath
+      ? 'workspaceFolder'
+      : workspacePath
+        ? 'workspace'
+        : undefined,
+    workspaceBaseUri: workspaceFolderPath
+      ? workspaceFolder?.uri
+      : workspacePath
+        ? getWorkspaceCustomCssBaseUri()
+        : undefined,
+    workspaceFolder
   };
 }
 
 function buildCustomCssKey(config: CustomCssConfig): string {
   return JSON.stringify({
     globalPath: config.globalPath ?? '',
+    workspaceBase: config.workspaceBaseUri?.fsPath ?? '',
     workspaceFolder: config.workspaceFolder?.uri.fsPath ?? '',
+    workspaceScope: config.workspaceScope ?? '',
     workspacePath: config.workspacePath ?? ''
   });
 }
@@ -99,23 +149,24 @@ function getGlobalCustomCssUri(globalPath: string | undefined): vscode.Uri | und
 function getWorkspaceCustomCssUri(
   config: CustomCssConfig
 ): vscode.Uri | undefined {
-  if (!config.workspacePath || !config.workspaceFolder) {
+  if (!config.workspacePath || !config.workspaceScope || !config.workspaceBaseUri) {
     return undefined;
   }
 
-  const target = vscode.Uri.joinPath(
-    config.workspaceFolder.uri,
-    config.workspacePath
-  );
-  const relative = path.relative(
-    config.workspaceFolder.uri.fsPath,
-    target.fsPath
-  );
+  const target = vscode.Uri.joinPath(config.workspaceBaseUri, config.workspacePath);
+  if (path.extname(target.fsPath).toLowerCase() !== '.css') {
+    return undefined;
+  }
+
   if (
-    relative.startsWith('..') ||
-    path.isAbsolute(relative) ||
-    path.extname(target.fsPath).toLowerCase() !== '.css'
+    config.workspaceScope === 'workspaceFolder' &&
+    config.workspaceFolder &&
+    !isUriWithinFolder(target, config.workspaceFolder)
   ) {
+    return undefined;
+  }
+
+  if (config.workspaceScope === 'workspace' && !isUriWithinWorkspace(target)) {
     return undefined;
   }
 

@@ -16,21 +16,43 @@ async function makeTempDir(): Promise<string> {
 
 function createConfiguredVscodeMock(options: {
   workspaceRoot?: string;
+  workspaceFolderPaths?: string[];
+  workspaceFilePath?: string;
   globalCustomCssPath?: string;
   workspaceCustomCssPath?: string;
+  workspaceFolderCustomCssPath?: string;
   openTextDocuments?: Array<{ fsPath: string; text: string }>;
   warnings: string[];
 }) {
-  const base = createVscodeMock(options.workspaceRoot);
+  const workspaceFolderPaths =
+    options.workspaceFolderPaths ??
+    (options.workspaceRoot ? [options.workspaceRoot] : undefined);
+  const base = createVscodeMock(workspaceFolderPaths?.[0]);
 
   return {
     ...base,
     workspace: {
       ...base.workspace,
+      workspaceFile: options.workspaceFilePath
+        ? base.Uri.file(options.workspaceFilePath)
+        : undefined,
+      workspaceFolders: (workspaceFolderPaths ?? []).map((workspacePath) => ({
+        name: path.basename(workspacePath),
+        uri: base.Uri.file(workspacePath)
+      })),
       textDocuments: (options.openTextDocuments ?? []).map((document) => ({
         uri: base.Uri.file(document.fsPath),
         getText: () => document.text
       })),
+      getWorkspaceFolder(uri: InstanceType<typeof base.Uri>) {
+        return this.workspaceFolders.find((folder) => {
+          const relative = path.relative(folder.uri.fsPath, uri.fsPath);
+          return (
+            relative === '' ||
+            (!relative.startsWith('..') && !path.isAbsolute(relative))
+          );
+        });
+      },
       getConfiguration: () => ({
         inspect<T>(key: string): {
           globalValue?: T;
@@ -45,7 +67,7 @@ function createConfiguredVscodeMock(options: {
             case 'preview.customCssPath':
               return {
                 workspaceValue: options.workspaceCustomCssPath as T | undefined,
-                workspaceFolderValue: options.workspaceCustomCssPath as
+                workspaceFolderValue: options.workspaceFolderCustomCssPath as
                   | T
                   | undefined
               };
@@ -70,8 +92,11 @@ function createConfiguredVscodeMock(options: {
 async function loadSecurity(
   options: {
     workspaceRoot?: string;
+    workspaceFolderPaths?: string[];
+    workspaceFilePath?: string;
     globalCustomCssPath?: string;
     workspaceCustomCssPath?: string;
+    workspaceFolderCustomCssPath?: string;
     openTextDocuments?: Array<{ fsPath: string; text: string }>;
   } = {}
 ) {
@@ -182,6 +207,29 @@ describe('security helpers', () => {
     );
 
     expect(result.cssText).toBe('.markdown-body { max-width: 960px; }');
+    expect(warnings).toEqual([]);
+  });
+
+  it('loads workspace-scoped CSS from the saved workspace base in multi-root workspaces', async () => {
+    const workspaceRoot = await makeTempDir();
+    const workspaceA = path.join(workspaceRoot, 'workspace-a');
+    const workspaceB = path.join(workspaceRoot, 'workspace-b');
+    const workspaceFilePath = path.join(workspaceRoot, 'demo.code-workspace');
+    const cssPath = path.join(workspaceB, 'styles', 'preview.css');
+    await fs.mkdir(workspaceA, { recursive: true });
+    await fs.mkdir(path.dirname(cssPath), { recursive: true });
+    await fs.writeFile(cssPath, '.markdown-body { color: purple; }', 'utf8');
+
+    const { security, vscodeMock, warnings } = await loadSecurity({
+      workspaceFolderPaths: [workspaceA, workspaceB],
+      workspaceFilePath,
+      workspaceCustomCssPath: 'workspace-b/styles/preview.css'
+    });
+    const result = await security.resolveCustomCss(
+      vscodeMock.Uri.file(path.join(workspaceA, 'doc.md'))
+    );
+
+    expect(result.cssText).toBe('.markdown-body { color: purple; }');
     expect(warnings).toEqual([]);
   });
 

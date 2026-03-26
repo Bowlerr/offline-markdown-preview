@@ -23,6 +23,7 @@ import {
   confirmSanitizeDisabled,
   createNonce,
   getConfiguredCustomCssUris,
+  getWorkspaceCustomCssBaseUri,
   inlineCssTag,
   resolveCustomCss
 } from './markdown/security';
@@ -88,6 +89,17 @@ function getCssFilePickerOptions(
     },
     defaultUri
   };
+}
+
+function isUriWithinFolder(
+  uri: vscode.Uri,
+  folder: vscode.WorkspaceFolder
+): boolean {
+  const relative = path.relative(folder.uri.fsPath, uri.fsPath);
+  return (
+    relative === '' ||
+    (!relative.startsWith('..') && !path.isAbsolute(relative))
+  );
 }
 
 export class MarkdownOutlineProvider
@@ -550,6 +562,7 @@ export class PreviewController implements vscode.Disposable {
       ? vscode.workspace.getWorkspaceFolder(resource)
       : undefined;
     const workspaceFolderCount = vscode.workspace.workspaceFolders?.length ?? 0;
+    const workspaceCustomCssBaseUri = getWorkspaceCustomCssBaseUri();
     const cfg = vscode.workspace.getConfiguration(
       'offlineMarkdownViewer',
       resource
@@ -571,7 +584,7 @@ export class PreviewController implements vscode.Disposable {
       }
     ];
 
-    if (workspaceFolderCount > 0) {
+    if (workspaceFolderCount > 0 && workspaceCustomCssBaseUri) {
       choices.push(
         {
           label: 'Set Workspace Custom CSS',
@@ -637,7 +650,9 @@ export class PreviewController implements vscode.Disposable {
     }
 
     const defaultWorkspaceUri =
-      picked.workspaceFolder?.uri ?? workspaceFolder?.uri ?? resource;
+      picked.target === vscode.ConfigurationTarget.Workspace
+        ? workspaceCustomCssBaseUri
+        : picked.workspaceFolder?.uri ?? workspaceFolder?.uri ?? resource;
     const defaultUri =
       picked.settingKey === 'preview.globalCustomCssPath'
         ? resource
@@ -667,29 +682,59 @@ export class PreviewController implements vscode.Disposable {
       return;
     }
 
-    const folder =
-      picked.target === vscode.ConfigurationTarget.Workspace
-        ? vscode.workspace.getWorkspaceFolder(cssUri)
-        : picked.workspaceFolder;
+    if (picked.target === vscode.ConfigurationTarget.Workspace) {
+      if (!workspaceCustomCssBaseUri) {
+        void vscode.window.showInformationMessage(
+          'Open a saved workspace or a single-folder workspace to configure workspace custom CSS.'
+        );
+        return;
+      }
+
+      if (!vscode.workspace.getWorkspaceFolder(cssUri)) {
+        void vscode.window.showInformationMessage(
+          'Select a .css file inside the current workspace to configure workspace custom CSS.'
+        );
+        return;
+      }
+
+      const relative = path.relative(
+        workspaceCustomCssBaseUri.fsPath,
+        cssUri.fsPath
+      );
+      if (path.isAbsolute(relative) || !relative.trim()) {
+        void vscode.window.showWarningMessage(
+          'Workspace custom CSS must point to a .css file inside the current workspace.'
+        );
+        return;
+      }
+
+      await cfg.update(
+        picked.settingKey,
+        relative.split(path.sep).join('/'),
+        picked.target
+      );
+      void vscode.window.showInformationMessage(
+        `Workspace custom CSS set to ${relative}`
+      );
+      return;
+    }
+
+    const folder = picked.workspaceFolder;
     if (!folder) {
       void vscode.window.showInformationMessage(
-        'Select a .css file inside a workspace folder to configure workspace custom CSS.'
+        'Open a Markdown file inside a workspace folder to configure folder custom CSS.'
+      );
+      return;
+    }
+
+    if (!isUriWithinFolder(cssUri, folder)) {
+      void vscode.window.showWarningMessage(
+        'Folder custom CSS must point to a .css file inside the current workspace folder.'
       );
       return;
     }
 
     const relative = path.relative(folder.uri.fsPath, cssUri.fsPath);
-    if (
-      relative.startsWith('..') ||
-      path.isAbsolute(relative) ||
-      !relative.trim()
-    ) {
-      void vscode.window.showWarningMessage(
-        'Workspace custom CSS must point to a .css file inside the current workspace folder.'
-      );
-      return;
-    }
-
     await cfg.update(
       picked.settingKey,
       relative.split(path.sep).join('/'),
