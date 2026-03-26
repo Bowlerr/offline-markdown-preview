@@ -8,6 +8,7 @@ import type {
 } from '../extension/messaging/protocol';
 import { parseExtensionMessage } from '../extension/messaging/validate';
 import { PreviewRenderer } from './app/renderer';
+import { restoreRemoteImageExportVisibility } from './app/remoteImageAttrs';
 import { PreviewSearch } from './app/search';
 import { ScrollSyncController } from './app/scrollSync';
 import { TocView } from './app/toc';
@@ -454,9 +455,7 @@ function buildRenderedHtmlExportSnapshot(): {
   for (const img of clone.querySelectorAll<HTMLImageElement>(
     'img[data-remote-src]'
   )) {
-    img.hidden = false;
-    img.removeAttribute('hidden');
-    img.removeAttribute('aria-hidden');
+    restoreRemoteImageExportVisibility(img);
   }
 
   // Remove preview-only state attrs.

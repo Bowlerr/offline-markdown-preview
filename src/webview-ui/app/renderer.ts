@@ -13,6 +13,7 @@ import type {
   RenderPayload,
   TocItem
 } from '../../extension/messaging/protocol';
+import { markRemoteImagePreviewHidden } from './remoteImageAttrs';
 import { getEffectiveMermaidThemeKind } from './themeUtils';
 
 export interface RendererBridge {
@@ -234,8 +235,7 @@ export class PreviewRenderer {
 
       block.append(text, btn);
       if (!hasPreviewSource) {
-        img.hidden = true;
-        img.setAttribute('aria-hidden', 'true');
+        markRemoteImagePreviewHidden(img);
       }
       img.insertAdjacentElement('afterend', block);
     }

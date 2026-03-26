@@ -585,6 +585,10 @@ describe('markdownPipeline', () => {
     expect(result.html).toContain(
       'data-export-srcset="file:///workspace/docs/images/scroll.gif 1x, https://cdn.example.com/scroll@2x.gif 2x"'
     );
+    expect(result.html).toContain(
+      'data-remote-src="https://cdn.example.com/scroll@2x.gif"'
+    );
+    expect(result.html).toContain('data-image-blocked="remote-disabled"');
   });
 
   it('marks srcset-only local raw HTML images as blocked when size filtering removes every candidate', () => {

@@ -201,6 +201,22 @@ function rewriteSrcsetAttribute(
   };
 }
 
+function setBlockedRemoteImageMetadata(
+  attributes: Array<{ name: string; value?: string }>,
+  blockedCandidates: Array<{ url: string }>
+): void {
+  if (blockedCandidates.length === 0) {
+    return;
+  }
+
+  if (!getHtmlAttribute(attributes, 'data-remote-src')?.value) {
+    setHtmlAttribute(attributes, 'data-remote-src', blockedCandidates[0].url);
+  }
+  if (!getHtmlAttribute(attributes, 'data-image-blocked')?.value) {
+    setHtmlAttribute(attributes, 'data-image-blocked', 'remote-disabled');
+  }
+}
+
 function rewriteImageAttributes(
   attributes: Array<{ name: string; value?: string }>,
   rawSrc: string,
@@ -253,6 +269,10 @@ function rewriteImageAttributes(
   }
 
   const srcsetRewrite = rewriteSrcsetAttribute(attributes, options);
+  setBlockedRemoteImageMetadata(
+    attributes,
+    srcsetRewrite.blockedRemoteCandidates
+  );
 
   if (blockedRemoteImage) {
     if (srcsetRewrite.previewCandidates.length > 0) {
@@ -299,21 +319,15 @@ function rewriteRawHtmlImages(
       rewriteImageAttributes(parsed.attributes, src, options);
     } else {
       const srcsetRewrite = rewriteSrcsetAttribute(parsed.attributes, options);
+      setBlockedRemoteImageMetadata(
+        parsed.attributes,
+        srcsetRewrite.blockedRemoteCandidates
+      );
       if (
         srcsetRewrite.changed &&
         srcsetRewrite.previewCandidates.length === 0
       ) {
         if (srcsetRewrite.blockedRemoteCandidates.length > 0) {
-          setHtmlAttribute(
-            parsed.attributes,
-            'data-remote-src',
-            srcsetRewrite.blockedRemoteCandidates[0].url
-          );
-          setHtmlAttribute(
-            parsed.attributes,
-            'data-image-blocked',
-            'remote-disabled'
-          );
           setHtmlAttribute(parsed.attributes, 'src', '');
         } else if (srcsetRewrite.blockedBySizeLimit) {
           const alt = getHtmlAttribute(parsed.attributes, 'alt')?.value ?? 'image';
