@@ -33,6 +33,11 @@ const webviewSchema = z.discriminatedUnion('type', [
     query: z.string().optional()
   }),
   z.object({
+    type: z.literal('uiStateChanged'),
+    searchUiVisible: z.boolean(),
+    tocVisible: z.boolean()
+  }),
+  z.object({
     type: z.literal('pdfExportResult'),
     ok: z.boolean(),
     error: z.string().optional()

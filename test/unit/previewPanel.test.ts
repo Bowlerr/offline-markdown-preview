@@ -53,6 +53,10 @@ function createPreviewPanelTestContext(options: {
   openDialogPath?: string;
   customCssUris?: InstanceType<typeof Uri>[];
   baseCssText?: string;
+  initialPreviewUiState?: {
+    searchUiVisible?: boolean;
+    tocVisible?: boolean;
+  };
 }) {
   const workspaceFolders = options.workspaceFolderPaths.map(
     createWorkspaceFolder
@@ -83,6 +87,10 @@ function createPreviewPanelTestContext(options: {
     .mockResolvedValue(
       options.openDialogPath ? [Uri.file(options.openDialogPath)] : undefined
     );
+  const globalStateGet = vi.fn((key: string) =>
+    key === 'preview.uiState' ? options.initialPreviewUiState : undefined
+  );
+  const globalStateUpdate = vi.fn().mockResolvedValue(undefined);
 
   const activeTextEditor = options.activeEditorPath
     ? {
@@ -247,6 +255,10 @@ function createPreviewPanelTestContext(options: {
     changeConfiguration: configurationChange.fire,
     closeTextDocument: textDocumentClose.fire,
     fsMock,
+    globalState: {
+      get: globalStateGet,
+      update: globalStateUpdate
+    },
     renderMarkdown: vi.fn(() => ({
       html: '<p>Rendered</p>',
       toc: [],
@@ -616,5 +628,70 @@ describe('PreviewController custom CSS', () => {
     expect(html.indexOf('<style data-omv-custom-css="1">')).toBeLessThan(
       html.indexOf('<style data-omv-custom-css="2">')
     );
+  });
+
+  it('hydrates new webviews with the saved preview UI toggle state', async () => {
+    const { globalState, module } = await loadPreviewPanelTestModule({
+      workspaceFolderPaths: ['/workspace-a'],
+      initialPreviewUiState: {
+        searchUiVisible: false,
+        tocVisible: false
+      }
+    });
+
+    const controller = new module.PreviewController({
+      extensionUri: Uri.file('/extension'),
+      globalStorageUri: Uri.file('/global-storage'),
+      globalState
+    } as any);
+
+    const html = await (controller as any).buildWebviewHtml(
+      {
+        asWebviewUri: (uri: InstanceType<typeof Uri>) => uri,
+        cspSource: 'webview-source'
+      },
+      {
+        enableMermaid: true,
+        enableMath: true,
+        scrollSync: true,
+        sanitizeHtml: true,
+        autoOpenPreview: false,
+        allowRemoteImages: false,
+        showFrontmatter: false,
+        externalConfirm: true,
+        maxImageMB: 8,
+        embedImages: false,
+        debounceMs: 120,
+        useMarkdownPreviewGithubStyling: false
+      }
+    );
+
+    expect(globalState.get).toHaveBeenCalledWith('preview.uiState');
+    expect(html).toContain(
+      'initialUiState: {"searchUiVisible":false,"tocVisible":false}'
+    );
+  });
+
+  it('persists preview UI toggle changes from the webview', async () => {
+    const { globalState, module } = await loadPreviewPanelTestModule({
+      workspaceFolderPaths: ['/workspace-a']
+    });
+
+    const controller = new module.PreviewController({
+      extensionUri: Uri.file('/extension'),
+      globalStorageUri: Uri.file('/global-storage'),
+      globalState
+    } as any);
+
+    await (controller as any).handleWebviewMessage({
+      type: 'uiStateChanged',
+      searchUiVisible: false,
+      tocVisible: true
+    });
+
+    expect(globalState.update).toHaveBeenCalledWith('preview.uiState', {
+      searchUiVisible: false,
+      tocVisible: true
+    });
   });
 });
