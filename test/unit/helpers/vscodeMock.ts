@@ -43,6 +43,7 @@ export function createVscodeMock(workspaceRoot?: string) {
   return {
     Uri,
     workspace: {
+      textDocuments: [],
       getWorkspaceFolder(uri: Uri) {
         if (!workspaceRoot) return undefined;
         const root = Uri.file(workspaceRoot);

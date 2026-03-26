@@ -22,7 +22,7 @@ import {
   buildWebviewCsp,
   confirmSanitizeDisabled,
   createNonce,
-  getCustomCssKey,
+  getConfiguredCustomCssUris,
   inlineCssTag,
   resolveCustomCss
 } from './markdown/security';
@@ -164,14 +164,26 @@ export class PreviewController implements vscode.Disposable {
   constructor(private readonly context: vscode.ExtensionContext) {
     this.disposables.push(
       vscode.workspace.onDidChangeTextDocument((e) => {
-        if (
-          !this.currentEditor ||
-          e.document.uri.toString() !==
-            this.currentEditor.document.uri.toString()
-        ) {
+        if (!this.currentEditor) {
           return;
         }
-        this.scheduleRender();
+
+        if (
+          e.document.uri.toString() ===
+          this.currentEditor.document.uri.toString()
+        ) {
+          this.scheduleRender();
+          return;
+        }
+
+        if (this.isCurrentCustomCssUri(e.document.uri)) {
+          this.scheduleRender(true);
+        }
+      }),
+      vscode.workspace.onDidSaveTextDocument((document) => {
+        if (this.isCurrentCustomCssUri(document.uri)) {
+          this.scheduleRender(true);
+        }
       }),
       vscode.window.onDidChangeActiveTextEditor((editor) => {
         if (editor?.document.languageId === 'markdown') {
@@ -1085,14 +1097,13 @@ export class PreviewController implements vscode.Disposable {
     settings: RuntimeSettings
   ): Promise<boolean> {
     if (!this.panel) return false;
-    const customCssKey = getCustomCssKey(documentUri);
+    const customCss = await resolveCustomCss(documentUri);
     if (
       this.webviewAllowsRemoteImages === settings.allowRemoteImages &&
-      this.webviewCustomCssKey === customCssKey
+      this.webviewCustomCssKey === customCss.key
     ) {
       return false;
     }
-    const customCss = await resolveCustomCss(documentUri);
     this.panel.webview.html = await this.buildWebviewHtml(
       this.panel.webview,
       settings,
@@ -1101,6 +1112,15 @@ export class PreviewController implements vscode.Disposable {
     this.webviewAllowsRemoteImages = settings.allowRemoteImages;
     this.webviewCustomCssKey = customCss.key;
     return true;
+  }
+
+  private isCurrentCustomCssUri(uri: vscode.Uri): boolean {
+    if (!this.panel || !this.currentEditor) {
+      return false;
+    }
+
+    const targets = getConfiguredCustomCssUris(this.currentEditor.document.uri);
+    return targets.some((target) => target.toString() === uri.toString());
   }
 
   private postMessage(message: ExtensionToWebviewMessage): void {

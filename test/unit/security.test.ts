@@ -18,6 +18,7 @@ function createConfiguredVscodeMock(options: {
   workspaceRoot?: string;
   globalCustomCssPath?: string;
   workspaceCustomCssPath?: string;
+  openTextDocuments?: Array<{ fsPath: string; text: string }>;
   warnings: string[];
 }) {
   const base = createVscodeMock(options.workspaceRoot);
@@ -26,6 +27,10 @@ function createConfiguredVscodeMock(options: {
     ...base,
     workspace: {
       ...base.workspace,
+      textDocuments: (options.openTextDocuments ?? []).map((document) => ({
+        uri: base.Uri.file(document.fsPath),
+        getText: () => document.text
+      })),
       getConfiguration: () => ({
         inspect<T>(key: string): {
           globalValue?: T;
@@ -67,6 +72,7 @@ async function loadSecurity(
     workspaceRoot?: string;
     globalCustomCssPath?: string;
     workspaceCustomCssPath?: string;
+    openTextDocuments?: Array<{ fsPath: string; text: string }>;
   } = {}
 ) {
   vi.resetModules();
@@ -248,9 +254,11 @@ describe('security helpers', () => {
         workspaceCustomCssPath: cssPath
       }
     );
-    const keyA = securityA.getCustomCssKey(
-      vscodeMockA.Uri.file(path.join(workspaceRootA, 'doc.md'))
-    );
+    const keyA = (
+      await securityA.resolveCustomCss(
+        vscodeMockA.Uri.file(path.join(workspaceRootA, 'doc.md'))
+      )
+    ).key;
 
     const { security: securityB, vscodeMock: vscodeMockB } = await loadSecurity(
       {
@@ -258,10 +266,72 @@ describe('security helpers', () => {
         workspaceCustomCssPath: cssPath
       }
     );
-    const keyB = securityB.getCustomCssKey(
-      vscodeMockB.Uri.file(path.join(workspaceRootB, 'doc.md'))
-    );
+    const keyB = (
+      await securityB.resolveCustomCss(
+        vscodeMockB.Uri.file(path.join(workspaceRootB, 'doc.md'))
+      )
+    ).key;
 
     expect(keyA).not.toBe(keyB);
+  });
+
+  it('changes the custom CSS key when file contents change at the same path', async () => {
+    const workspaceRoot = await makeTempDir();
+    const cssPath = path.join(workspaceRoot, 'styles', 'preview.css');
+
+    const { security, vscodeMock } = await loadSecurity({
+      workspaceRoot,
+      workspaceCustomCssPath: 'styles/preview.css',
+      openTextDocuments: [{ fsPath: cssPath, text: 'body { color: red; }' }]
+    });
+    const first = await security.resolveCustomCss(
+      vscodeMock.Uri.file(path.join(workspaceRoot, 'doc.md'))
+    );
+
+    const { security: updatedSecurity, vscodeMock: updatedVscodeMock } =
+      await loadSecurity({
+        workspaceRoot,
+        workspaceCustomCssPath: 'styles/preview.css',
+        openTextDocuments: [{ fsPath: cssPath, text: 'body { color: blue; }' }]
+      });
+    const second = await updatedSecurity.resolveCustomCss(
+      updatedVscodeMock.Uri.file(path.join(workspaceRoot, 'doc.md'))
+    );
+
+    expect(first.key).not.toBe(second.key);
+    expect(first.cssText).toBe('body { color: red; }');
+    expect(second.cssText).toBe('body { color: blue; }');
+  });
+
+  it('changes the custom CSS key when a missing file later appears', async () => {
+    const workspaceRoot = await makeTempDir();
+    const cssPath = path.join(workspaceRoot, 'styles', 'preview.css');
+
+    const { security, vscodeMock, warnings } = await loadSecurity({
+      workspaceRoot,
+      workspaceCustomCssPath: 'styles/preview.css'
+    });
+    const first = await security.resolveCustomCss(
+      vscodeMock.Uri.file(path.join(workspaceRoot, 'doc.md'))
+    );
+    expect(first.cssText).toBeUndefined();
+    expect(warnings).toEqual([
+      'Could not read custom CSS file: styles/preview.css'
+    ]);
+
+    await fs.mkdir(path.dirname(cssPath), { recursive: true });
+    await fs.writeFile(cssPath, 'body { color: green; }', 'utf8');
+
+    const { security: updatedSecurity, vscodeMock: updatedVscodeMock } =
+      await loadSecurity({
+        workspaceRoot,
+        workspaceCustomCssPath: 'styles/preview.css'
+      });
+    const second = await updatedSecurity.resolveCustomCss(
+      updatedVscodeMock.Uri.file(path.join(workspaceRoot, 'doc.md'))
+    );
+
+    expect(first.key).not.toBe(second.key);
+    expect(second.cssText).toBe('body { color: green; }');
   });
 });

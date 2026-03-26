@@ -1,5 +1,5 @@
 import * as fs from 'node:fs/promises';
-import { randomBytes } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import * as path from 'node:path';
 import * as vscode from 'vscode';
 
@@ -74,32 +74,31 @@ function buildCustomCssKey(config: CustomCssConfig): string {
   });
 }
 
-async function readGlobalCustomCss(
-  globalPath: string
-): Promise<string | undefined> {
+function hashCssText(cssText: string): string {
+  return createHash('sha256').update(cssText).digest('hex');
+}
+
+function getOpenDocumentText(uri: vscode.Uri): string | undefined {
+  const openDocument = vscode.workspace.textDocuments.find(
+    (document) => document.uri.toString() === uri.toString()
+  );
+  return openDocument?.getText();
+}
+
+function getGlobalCustomCssUri(globalPath: string | undefined): vscode.Uri | undefined {
   if (
+    !globalPath ||
     !path.isAbsolute(globalPath) ||
     path.extname(globalPath).toLowerCase() !== '.css'
   ) {
-    void vscode.window.showWarningMessage(
-      'Ignoring global custom CSS path because it is not an absolute .css file.'
-    );
     return undefined;
   }
-
-  try {
-    return await fs.readFile(globalPath, 'utf8');
-  } catch {
-    void vscode.window.showWarningMessage(
-      `Could not read global custom CSS file: ${globalPath}`
-    );
-    return undefined;
-  }
+  return vscode.Uri.file(globalPath);
 }
 
-async function readWorkspaceCustomCss(
+function getWorkspaceCustomCssUri(
   config: CustomCssConfig
-): Promise<string | undefined> {
+): vscode.Uri | undefined {
   if (!config.workspacePath || !config.workspaceFolder) {
     return undefined;
   }
@@ -117,10 +116,56 @@ async function readWorkspaceCustomCss(
     path.isAbsolute(relative) ||
     path.extname(target.fsPath).toLowerCase() !== '.css'
   ) {
+    return undefined;
+  }
+
+  return target;
+}
+
+async function readGlobalCustomCss(
+  globalPath: string
+): Promise<string | undefined> {
+  const target = getGlobalCustomCssUri(globalPath);
+  if (!target) {
+    void vscode.window.showWarningMessage(
+      'Ignoring global custom CSS path because it is not an absolute .css file.'
+    );
+    return undefined;
+  }
+
+  const openDocumentText = getOpenDocumentText(target);
+  if (openDocumentText !== undefined) {
+    return openDocumentText;
+  }
+
+  try {
+    return await fs.readFile(target.fsPath, 'utf8');
+  } catch {
+    void vscode.window.showWarningMessage(
+      `Could not read global custom CSS file: ${globalPath}`
+    );
+    return undefined;
+  }
+}
+
+async function readWorkspaceCustomCss(
+  config: CustomCssConfig
+): Promise<string | undefined> {
+  if (!config.workspacePath || !config.workspaceFolder) {
+    return undefined;
+  }
+
+  const target = getWorkspaceCustomCssUri(config);
+  if (!target) {
     void vscode.window.showWarningMessage(
       'Ignoring custom CSS path because it is not a workspace-local .css file.'
     );
     return undefined;
+  }
+
+  const openDocumentText = getOpenDocumentText(target);
+  if (openDocumentText !== undefined) {
+    return openDocumentText;
   }
 
   try {
@@ -133,8 +178,15 @@ async function readWorkspaceCustomCss(
   }
 }
 
-export function getCustomCssKey(documentUri: vscode.Uri): string {
-  return buildCustomCssKey(getCustomCssConfig(documentUri));
+export function getConfiguredCustomCssUris(
+  documentUri: vscode.Uri
+): vscode.Uri[] {
+  const config = getCustomCssConfig(documentUri);
+  const targets = [
+    getGlobalCustomCssUri(config.globalPath),
+    getWorkspaceCustomCssUri(config)
+  ].filter((target): target is vscode.Uri => Boolean(target));
+  return targets;
 }
 
 export async function resolveCustomCss(
@@ -142,11 +194,14 @@ export async function resolveCustomCss(
 ): Promise<ResolvedCustomCss> {
   const config = getCustomCssConfig(documentUri);
   const cssParts: string[] = [];
+  let globalHash = '';
+  let workspaceHash = '';
 
   if (config.globalPath) {
     const globalCss = await readGlobalCustomCss(config.globalPath);
     if (globalCss) {
       cssParts.push(globalCss);
+      globalHash = hashCssText(globalCss);
     }
   }
 
@@ -154,12 +209,17 @@ export async function resolveCustomCss(
     const workspaceCss = await readWorkspaceCustomCss(config);
     if (workspaceCss) {
       cssParts.push(workspaceCss);
+      workspaceHash = hashCssText(workspaceCss);
     }
   }
 
   return {
     cssText: cssParts.length > 0 ? cssParts.join('\n\n') : undefined,
-    key: buildCustomCssKey(config)
+    key: JSON.stringify({
+      config: buildCustomCssKey(config),
+      globalHash,
+      workspaceHash
+    })
   };
 }
 
