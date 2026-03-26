@@ -6,6 +6,11 @@ export interface HtmlAttribute {
   changed?: boolean;
 }
 
+export interface HtmlSrcsetCandidate {
+  url: string;
+  descriptor?: string;
+}
+
 function escapeHtmlAttribute(value: string): string {
   return value
     .replace(/&/g, '&amp;')
@@ -145,6 +150,57 @@ export function getHtmlAttribute(
   return attributes.find(
     (attr) => attr.name.toLowerCase() === name.toLowerCase()
   );
+}
+
+export function parseHtmlSrcset(value: string): HtmlSrcsetCandidate[] {
+  const candidates: HtmlSrcsetCandidate[] = [];
+  let index = 0;
+
+  while (index < value.length) {
+    while (index < value.length && /[\s,]/.test(value[index])) {
+      index += 1;
+    }
+    if (index >= value.length) {
+      break;
+    }
+
+    const urlStart = index;
+    while (index < value.length && !/[\s,]/.test(value[index])) {
+      index += 1;
+    }
+
+    const url = value.slice(urlStart, index);
+    const descriptorStart = index;
+    while (index < value.length && value[index] !== ',') {
+      index += 1;
+    }
+
+    const descriptor = value.slice(descriptorStart, index).trim();
+    if (url) {
+      candidates.push({
+        url,
+        descriptor: descriptor || undefined
+      });
+    }
+
+    if (value[index] === ',') {
+      index += 1;
+    }
+  }
+
+  return candidates;
+}
+
+export function serializeHtmlSrcset(
+  candidates: HtmlSrcsetCandidate[]
+): string {
+  return candidates
+    .map((candidate) =>
+      candidate.descriptor
+        ? `${candidate.url} ${candidate.descriptor}`
+        : candidate.url
+    )
+    .join(', ');
 }
 
 function findHtmlImgTagEnd(html: string, fromIndex: number): number {

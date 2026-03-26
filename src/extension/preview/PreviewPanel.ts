@@ -17,7 +17,9 @@ import {
   mapHtmlImgTags,
   mapHtmlImgTagsAsync,
   parseHtmlImgTag,
+  parseHtmlSrcset,
   serializeHtmlImgTag,
+  serializeHtmlSrcset,
   setHtmlAttribute
 } from './htmlImageTags';
 import { renderMarkdown } from './markdown/markdownPipeline';
@@ -1765,21 +1767,56 @@ export class PreviewController implements vscode.Disposable {
 
       const localSrc = getHtmlAttribute(parsed.attributes, 'data-local-src')
         ?.value;
-      const currentSrc = getHtmlAttribute(parsed.attributes, 'src')?.value;
-      if (!localSrc || !currentSrc) {
-        return tag;
-      }
-      const localUri = vscode.Uri.parse(localSrc, true);
-      const bytes = await fileSizeBytes(localUri).catch(() => 0);
-      if (bytes <= 0 || bytes > maxImageMB * 1024 * 1024) {
-        return tag;
-      }
-      const dataUri = await toDataUri(localUri).catch(() => undefined);
-      if (!dataUri) {
-        return tag;
+      const exportSrcset = getHtmlAttribute(parsed.attributes, 'srcset')?.value;
+      let changed = false;
+
+      if (localSrc) {
+        const localUri = vscode.Uri.parse(localSrc, true);
+        const bytes = await fileSizeBytes(localUri).catch(() => 0);
+        if (bytes > 0 && bytes <= maxImageMB * 1024 * 1024) {
+          const dataUri = await toDataUri(localUri).catch(() => undefined);
+          if (dataUri) {
+            setHtmlAttribute(parsed.attributes, 'src', dataUri);
+            changed = true;
+          }
+        }
       }
 
-      setHtmlAttribute(parsed.attributes, 'src', dataUri);
+      if (exportSrcset) {
+        const embeddedSrcset = await Promise.all(
+          parseHtmlSrcset(exportSrcset).map(async (candidate) => {
+            if (!/^file:/i.test(candidate.url)) {
+              return candidate;
+            }
+
+            const localUri = vscode.Uri.parse(candidate.url, true);
+            const bytes = await fileSizeBytes(localUri).catch(() => 0);
+            if (bytes <= 0 || bytes > maxImageMB * 1024 * 1024) {
+              return candidate;
+            }
+
+            const dataUri = await toDataUri(localUri).catch(() => undefined);
+            if (!dataUri) {
+              return candidate;
+            }
+
+            changed = true;
+            return {
+              url: dataUri,
+              descriptor: candidate.descriptor
+            };
+          })
+        );
+        setHtmlAttribute(
+          parsed.attributes,
+          'srcset',
+          serializeHtmlSrcset(embeddedSrcset)
+        );
+      }
+
+      if (!changed) {
+        return tag;
+      }
       return serializeHtmlImgTag(parsed.attributes, parsed.selfClosing);
     });
   }
@@ -1793,12 +1830,20 @@ export class PreviewController implements vscode.Disposable {
 
       const localSrc = getHtmlAttribute(parsed.attributes, 'data-local-src')
         ?.value;
-      const currentSrc = getHtmlAttribute(parsed.attributes, 'src')?.value;
-      if (!localSrc || !currentSrc) {
+      const exportSrcset = getHtmlAttribute(
+        parsed.attributes,
+        'data-export-srcset'
+      )?.value;
+      if (!localSrc && !exportSrcset) {
         return tag;
       }
 
-      setHtmlAttribute(parsed.attributes, 'src', localSrc);
+      if (localSrc) {
+        setHtmlAttribute(parsed.attributes, 'src', localSrc);
+      }
+      if (exportSrcset) {
+        setHtmlAttribute(parsed.attributes, 'srcset', exportSrcset);
+      }
       return serializeHtmlImgTag(parsed.attributes, parsed.selfClosing);
     });
   }

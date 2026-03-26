@@ -1,13 +1,25 @@
-import { beforeAll, describe, expect, it, vi } from 'vitest';
+import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 let renderMarkdown: any;
 let Uri: any;
+const statSyncMock = vi.fn(() => {
+  throw new Error('ENOENT');
+});
 
 beforeAll(async () => {
   const mock = await import('./helpers/vscodeMock');
   Uri = mock.Uri;
   vi.doMock('vscode', () => mock.createVscodeMock('/workspace'));
+  vi.doMock('node:fs', () => ({
+    statSync: statSyncMock
+  }));
   ({ renderMarkdown } = await import('../../src/extension/preview/markdown/markdownPipeline'));
+});
+
+beforeEach(() => {
+  statSyncMock.mockImplementation(() => {
+    throw new Error('ENOENT');
+  });
 });
 
 describe('markdownPipeline', () => {
@@ -195,6 +207,58 @@ describe('markdownPipeline', () => {
     expect(result.html).toContain('alt="a > b"');
     expect(result.html).toContain(
       'data-local-src="file:///workspace/docs/images/scroll.gif"'
+    );
+  });
+
+  it('preserves local export metadata for size-blocked raw HTML images', () => {
+    statSyncMock.mockReturnValue({ size: 101 * 1024 * 1024 });
+
+    const sourceUri = Uri.file('/workspace/docs/readme.md');
+    const webview = {
+      asWebviewUri(uri: { toString(): string }) {
+        return { toString: () => `vscode-webview://${uri.toString()}` };
+      }
+    };
+
+    const result = renderMarkdown('<img src="images/scroll.gif" alt="demo" />', {
+      sourceUri,
+      webview: webview as any,
+      allowHtml: true,
+      allowRemoteImages: false,
+      maxImageMB: 100
+    });
+
+    expect(result.html).toContain(
+      'data-local-src="file:///workspace/docs/images/scroll.gif"'
+    );
+    expect(result.html).toContain('data-image-blocked="size-limit"');
+    expect(result.html).toContain('src=""');
+  });
+
+  it('rewrites raw HTML srcset candidates and preserves export srcset', () => {
+    const sourceUri = Uri.file('/workspace/docs/readme.md');
+    const webview = {
+      asWebviewUri(uri: { toString(): string }) {
+        return { toString: () => `vscode-webview://${uri.toString()}` };
+      }
+    };
+
+    const result = renderMarkdown(
+      '<img src="images/scroll.gif" srcset="images/scroll.gif 1x, images/scroll@2x.gif 2x" />',
+      {
+        sourceUri,
+        webview: webview as any,
+        allowHtml: true,
+        allowRemoteImages: false,
+        maxImageMB: 100
+      }
+    );
+
+    expect(result.html).toContain(
+      'srcset="vscode-webview://file:///workspace/docs/images/scroll.gif 1x, vscode-webview://file:///workspace/docs/images/scroll@2x.gif 2x"'
+    );
+    expect(result.html).toContain(
+      'data-export-srcset="file:///workspace/docs/images/scroll.gif 1x, file:///workspace/docs/images/scroll@2x.gif 2x"'
     );
   });
 

@@ -11,7 +11,9 @@ import {
   getHtmlAttribute,
   mapHtmlImgTags,
   parseHtmlImgTag,
+  parseHtmlSrcset,
   serializeHtmlImgTag,
+  serializeHtmlSrcset,
   setHtmlAttribute
 } from '../htmlImageTags';
 import { parseFrontmatter } from './frontmatter';
@@ -94,6 +96,85 @@ function renderMathPlaceholder(
   return `<span class="${className}"${extraAttrs} data-math="${encodeMathExpression(expr)}"></span>`;
 }
 
+function rewriteSrcsetAttribute(
+  attributes: Array<{ name: string; value?: string }>,
+  options: MarkdownRenderOptions
+): void {
+  const srcset = getHtmlAttribute(attributes, 'srcset')?.value;
+  if (!srcset) {
+    return;
+  }
+
+  const previewCandidates = [];
+  const exportCandidates = [];
+  let changed = false;
+
+  for (const candidate of parseHtmlSrcset(srcset)) {
+    const override = options.remoteImageOverrides?.get(candidate.url);
+    const resolved = resolveImageUri(options.sourceUri, candidate.url);
+
+    if (override) {
+      previewCandidates.push({
+        url: options.webview.asWebviewUri(override).toString(),
+        descriptor: candidate.descriptor
+      });
+      exportCandidates.push({
+        url: override.toString(),
+        descriptor: candidate.descriptor
+      });
+      changed = true;
+      continue;
+    }
+
+    if (resolved) {
+      exportCandidates.push({
+        url: resolved.toString(),
+        descriptor: candidate.descriptor
+      });
+
+      try {
+        const bytes = statSync(resolved.fsPath).size;
+        if (bytes > options.maxImageMB * 1024 * 1024) {
+          changed = true;
+          continue;
+        }
+      } catch {
+        // If stat fails we still rewrite to a webview URI and let runtime loading decide the result.
+      }
+
+      previewCandidates.push({
+        url: options.webview.asWebviewUri(resolved).toString(),
+        descriptor: candidate.descriptor
+      });
+      changed = true;
+      continue;
+    }
+
+    if (/^https?:\/\//i.test(candidate.url) && !options.allowRemoteImages) {
+      changed = true;
+      continue;
+    }
+
+    previewCandidates.push(candidate);
+    exportCandidates.push(candidate);
+  }
+
+  if (!changed) {
+    return;
+  }
+
+  setHtmlAttribute(
+    attributes,
+    'data-export-srcset',
+    serializeHtmlSrcset(exportCandidates)
+  );
+  setHtmlAttribute(
+    attributes,
+    'srcset',
+    serializeHtmlSrcset(previewCandidates)
+  );
+}
+
 function rewriteImageAttributes(
   attributes: Array<{ name: string; value?: string }>,
   rawSrc: string,
@@ -110,6 +191,7 @@ function rewriteImageAttributes(
       options.webview.asWebviewUri(override).toString()
     );
   } else if (resolved) {
+    setHtmlAttribute(attributes, 'data-local-src', resolved.toString());
     try {
       const bytes = statSync(resolved.fsPath).size;
       if (bytes > options.maxImageMB * 1024 * 1024) {
@@ -122,18 +204,23 @@ function rewriteImageAttributes(
         setHtmlAttribute(attributes, 'data-image-blocked', 'size-limit');
         setHtmlAttribute(attributes, 'src', '');
         setHtmlAttribute(attributes, 'data-max-mb', String(options.maxImageMB));
-        return;
+      } else {
+        setHtmlAttribute(
+          attributes,
+          'src',
+          options.webview.asWebviewUri(resolved).toString()
+        );
+        rewriteSrcsetAttribute(attributes, options);
       }
     } catch {
       // If stat fails we still rewrite to a webview URI and let runtime loading decide the result.
+      setHtmlAttribute(
+        attributes,
+        'src',
+        options.webview.asWebviewUri(resolved).toString()
+      );
+      rewriteSrcsetAttribute(attributes, options);
     }
-
-    setHtmlAttribute(attributes, 'data-local-src', resolved.toString());
-    setHtmlAttribute(
-      attributes,
-      'src',
-      options.webview.asWebviewUri(resolved).toString()
-    );
   } else if (/^https?:\/\//i.test(rawSrc) && !options.allowRemoteImages) {
     setHtmlAttribute(attributes, 'data-remote-src', rawSrc);
     setHtmlAttribute(attributes, 'data-image-blocked', 'remote-disabled');
@@ -160,7 +247,8 @@ function rewriteRawHtmlImages(
       getHtmlAttribute(parsed.attributes, 'data-local-src') ||
       getHtmlAttribute(parsed.attributes, 'data-remote-src') ||
       getHtmlAttribute(parsed.attributes, 'data-image-blocked') ||
-      getHtmlAttribute(parsed.attributes, 'data-max-mb')
+      getHtmlAttribute(parsed.attributes, 'data-max-mb') ||
+      getHtmlAttribute(parsed.attributes, 'data-export-srcset')
     ) {
       return tag;
     }

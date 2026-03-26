@@ -101,6 +101,7 @@ export class PreviewRenderer {
             'data-math',
             'data-omv-link',
             'data-local-src',
+            'data-export-srcset',
             'data-remote-src',
             'data-image-blocked',
             'data-max-mb',
