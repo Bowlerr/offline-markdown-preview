@@ -6,6 +6,20 @@ import {
 } from '../../src/extension/preview/htmlImageTags';
 
 describe('htmlImageTags', () => {
+  it('skips img tags inside HTML comments', () => {
+    const html =
+      '<!-- note > <img src="images/commented.png" alt="commented" /> --><p><img src="images/rendered.png" alt="rendered" /></p>';
+
+    const result = mapHtmlImgTags(html, (tag) => `[${tag}]`);
+
+    expect(result).toContain(
+      '<!-- note > <img src="images/commented.png" alt="commented" /> -->'
+    );
+    expect(result).toContain(
+      '<p>[<img src="images/rendered.png" alt="rendered" />]</p>'
+    );
+  });
+
   it('skips img tags nested inside inert HTML containers', () => {
     const html = [
       '<template><img src="images/template.png" alt="template" /></template>',

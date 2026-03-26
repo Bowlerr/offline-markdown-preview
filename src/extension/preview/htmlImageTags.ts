@@ -486,6 +486,15 @@ function findHtmlImgTagStart(html: string, fromIndex: number): number {
       continue;
     }
 
+    if (html.startsWith('<!--', index)) {
+      const commentEnd = html.indexOf('-->', index + 4);
+      if (commentEnd < 0) {
+        return -1;
+      }
+      index = commentEnd + 2;
+      continue;
+    }
+
     if (/^<img\b/i.test(html.slice(index))) {
       return index;
     }
