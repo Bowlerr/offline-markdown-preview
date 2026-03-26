@@ -136,4 +136,37 @@ describe('markdownPipeline', () => {
     expect(allowed.html).not.toContain('data-remote-src=');
     expect(allowed.html).toContain('src="https://example.com/image.png"');
   });
+
+  it('rewrites local raw HTML img tags to webview URIs', () => {
+    const sourceUri = Uri.file('/workspace/docs/readme.md');
+    const webview = {
+      asWebviewUri(uri: { toString(): string }) {
+        return { toString: () => `vscode-webview://${uri.toString()}` };
+      }
+    };
+
+    const input = [
+      '<table>',
+      '  <tr>',
+      '    <td><img src="images/scroll.gif" alt="demo" /></td>',
+      '  </tr>',
+      '</table>'
+    ].join('\n');
+
+    const result = renderMarkdown(input, {
+      sourceUri,
+      webview: webview as any,
+      allowHtml: true,
+      allowRemoteImages: false,
+      maxImageMB: 100
+    });
+
+    expect(result.html).toContain(
+      'src="vscode-webview://file:///workspace/docs/images/scroll.gif"'
+    );
+    expect(result.html).toContain(
+      'data-local-src="file:///workspace/docs/images/scroll.gif"'
+    );
+    expect(result.html).toContain('loading="lazy"');
+  });
 });

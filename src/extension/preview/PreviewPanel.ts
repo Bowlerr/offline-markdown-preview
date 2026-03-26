@@ -86,7 +86,7 @@ function getSettings(resource?: vscode.Uri): RuntimeSettings {
     allowRemoteImages: cfg.get<boolean>('preview.allowRemoteImages', false),
     showFrontmatter: cfg.get<boolean>('preview.showFrontmatter', false),
     externalConfirm: cfg.get<boolean>('externalLinks.confirm', true),
-    maxImageMB: cfg.get<number>('preview.maxImageMB', 8),
+    maxImageMB: cfg.get<number>('preview.maxImageMB', 24),
     embedImages: cfg.get<boolean>('export.embedImages', false),
     debounceMs: cfg.get<number>('performance.debounceMs', 120),
     useMarkdownPreviewGithubStyling: cfg.get<boolean>(

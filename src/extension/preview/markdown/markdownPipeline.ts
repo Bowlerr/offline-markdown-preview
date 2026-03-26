@@ -30,6 +30,11 @@ export interface MarkdownRenderResult {
   lineCount: number;
 }
 
+interface HtmlAttribute {
+  name: string;
+  value?: string;
+}
+
 function slugify(value: string): string {
   return value
     .trim()
@@ -85,6 +90,148 @@ function renderMathPlaceholder(
     return `<div class="${className}"${extraAttrs} data-math="${encodeMathExpression(expr)}"></div>`;
   }
   return `<span class="${className}"${extraAttrs} data-math="${encodeMathExpression(expr)}"></span>`;
+}
+
+function escapeHtmlAttribute(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/"/g, '&quot;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
+function parseHtmlImgTag(tag: string): {
+  attributes: HtmlAttribute[];
+  selfClosing: boolean;
+} | null {
+  const body = tag.replace(/^<img\b/i, '').replace(/\s*\/?>$/, '');
+  const attributes: HtmlAttribute[] = [];
+  const attrPattern =
+    /([^\s"'=<>`\/]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+)))?/g;
+
+  for (const match of body.matchAll(attrPattern)) {
+    const name = match[1];
+    const value = match[2] ?? match[3] ?? match[4];
+    attributes.push(
+      value === undefined ? { name } : { name, value }
+    );
+  }
+
+  return {
+    attributes,
+    selfClosing: /\/\s*>$/.test(tag)
+  };
+}
+
+function serializeHtmlImgTag(
+  attributes: HtmlAttribute[],
+  selfClosing: boolean
+): string {
+  const renderedAttrs = attributes
+    .map((attr) =>
+      attr.value === undefined
+        ? ` ${attr.name}`
+        : ` ${attr.name}="${escapeHtmlAttribute(attr.value)}"`
+    )
+    .join('');
+  return `<img${renderedAttrs}${selfClosing ? ' />' : '>'}`;
+}
+
+function setHtmlAttribute(
+  attributes: HtmlAttribute[],
+  name: string,
+  value: string
+): void {
+  const existing = attributes.find(
+    (attr) => attr.name.toLowerCase() === name.toLowerCase()
+  );
+  if (existing) {
+    existing.name = name;
+    existing.value = value;
+    return;
+  }
+  attributes.push({ name, value });
+}
+
+function getHtmlAttribute(
+  attributes: HtmlAttribute[],
+  name: string
+): HtmlAttribute | undefined {
+  return attributes.find(
+    (attr) => attr.name.toLowerCase() === name.toLowerCase()
+  );
+}
+
+function rewriteImageAttributes(
+  attributes: HtmlAttribute[],
+  rawSrc: string,
+  options: MarkdownRenderOptions
+): void {
+  const override = options.remoteImageOverrides?.get(rawSrc);
+  const resolved = resolveImageUri(options.sourceUri, rawSrc);
+
+  if (override) {
+    setHtmlAttribute(attributes, 'data-local-src', override.toString());
+    setHtmlAttribute(
+      attributes,
+      'src',
+      options.webview.asWebviewUri(override).toString()
+    );
+  } else if (resolved) {
+    try {
+      const bytes = statSync(resolved.fsPath).size;
+      if (bytes > options.maxImageMB * 1024 * 1024) {
+        const alt = getHtmlAttribute(attributes, 'alt')?.value ?? 'image';
+        setHtmlAttribute(
+          attributes,
+          'alt',
+          `${alt} (blocked: exceeds preview.maxImageMB)`
+        );
+        setHtmlAttribute(attributes, 'data-image-blocked', 'size-limit');
+        setHtmlAttribute(attributes, 'src', '');
+        setHtmlAttribute(attributes, 'data-max-mb', String(options.maxImageMB));
+        return;
+      }
+    } catch {
+      // If stat fails we still rewrite to a webview URI and let runtime loading decide the result.
+    }
+
+    setHtmlAttribute(attributes, 'data-local-src', resolved.toString());
+    setHtmlAttribute(
+      attributes,
+      'src',
+      options.webview.asWebviewUri(resolved).toString()
+    );
+  } else if (/^https?:\/\//i.test(rawSrc) && !options.allowRemoteImages) {
+    setHtmlAttribute(attributes, 'data-remote-src', rawSrc);
+    setHtmlAttribute(attributes, 'data-image-blocked', 'remote-disabled');
+    setHtmlAttribute(attributes, 'src', '');
+  }
+
+  setHtmlAttribute(attributes, 'loading', 'lazy');
+  setHtmlAttribute(attributes, 'decoding', 'async');
+  setHtmlAttribute(attributes, 'referrerpolicy', 'no-referrer');
+  setHtmlAttribute(attributes, 'data-max-mb', String(options.maxImageMB));
+}
+
+function rewriteRawHtmlImages(
+  html: string,
+  options: MarkdownRenderOptions
+): string {
+  return html.replace(/<img\b[^>]*>/gi, (tag) => {
+    const parsed = parseHtmlImgTag(tag);
+    if (!parsed) {
+      return tag;
+    }
+
+    const src = getHtmlAttribute(parsed.attributes, 'src')?.value;
+    if (!src) {
+      return serializeHtmlImgTag(parsed.attributes, parsed.selfClosing);
+    }
+
+    rewriteImageAttributes(parsed.attributes, src, options);
+    return serializeHtmlImgTag(parsed.attributes, parsed.selfClosing);
+  });
 }
 
 function isEscaped(source: string, index: number): boolean {
@@ -375,7 +522,7 @@ export function renderMarkdown(input: string, options: MarkdownRenderOptions): M
   const parsed = parseFrontmatter(input);
   const md = createMarkdownIt(options);
   const env: RenderEnvironment = { toc: [] };
-  const html = md.render(parsed.content, env);
+  const html = rewriteRawHtmlImages(md.render(parsed.content, env), options);
   const lineCount = input.split(/\r?\n/).length;
 
   return {
