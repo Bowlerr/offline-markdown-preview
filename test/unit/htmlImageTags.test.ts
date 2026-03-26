@@ -87,6 +87,45 @@ describe('htmlImageTags', () => {
     ]);
   });
 
+  it('splits compact root-relative candidates without file extensions', () => {
+    const srcset = '/image?id=1,/image?id=2 2x';
+
+    expect(parseHtmlSrcset(srcset)).toEqual([
+      {
+        url: '/image?id=1'
+      },
+      {
+        url: '/image?id=2',
+        descriptor: '2x'
+      }
+    ]);
+  });
+
+  it('splits compact protocol-relative candidates without file extensions', () => {
+    const srcset = '//cdn.example.com/a,//cdn.example.com/b 2x';
+
+    expect(parseHtmlSrcset(srcset)).toEqual([
+      {
+        url: '//cdn.example.com/a'
+      },
+      {
+        url: '//cdn.example.com/b',
+        descriptor: '2x'
+      }
+    ]);
+  });
+
+  it('preserves commas in root-relative URLs when the right side is not another root-relative candidate', () => {
+    const srcset = '/api/image,retina 2x';
+
+    expect(parseHtmlSrcset(srcset)).toEqual([
+      {
+        url: '/api/image,retina',
+        descriptor: '2x'
+      }
+    ]);
+  });
+
   it('preserves commas inside absolute http srcset URLs', () => {
     const srcset =
       'https://cdn.example.com/demo,retina.gif 2x, https://cdn.example.com/demo@3x.gif 3x';

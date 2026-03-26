@@ -199,17 +199,44 @@ function looksLikeSrcsetUrlStart(value: string): boolean {
     return false;
   }
 
-  return !/[<>"'=]/.test(match[1]);
+  return !/[<>"']/.test(match[1]);
+}
+
+function getExplicitSrcsetUrlKind(
+  value: string
+): 'absolute-url' | 'protocol-relative' | 'root-relative' | 'dot-relative' | undefined {
+  const trimmed = value.trim();
+  if (!trimmed || /[\s,]/.test(trimmed) || /[<>"']/.test(trimmed)) {
+    return undefined;
+  }
+
+  if (/^(?:https?:|file:)/i.test(trimmed)) {
+    return 'absolute-url';
+  }
+
+  if (/^\/\//.test(trimmed)) {
+    return 'protocol-relative';
+  }
+
+  if (/^\//.test(trimmed)) {
+    return 'root-relative';
+  }
+
+  if (/^\.\.?\//.test(trimmed)) {
+    return 'dot-relative';
+  }
+
+  return undefined;
 }
 
 function looksLikeStandaloneSrcsetUrl(value: string): boolean {
   const trimmed = value.trim();
-  if (!trimmed || /[\s,]/.test(trimmed)) {
+  if (!trimmed || /[\s,]/.test(trimmed) || /[<>"']/.test(trimmed)) {
     return false;
   }
 
   return (
-    /^(?:https?:|file:)/i.test(trimmed) ||
+    getExplicitSrcsetUrlKind(trimmed) !== undefined ||
     /^[^/?#,\s]+\.[a-z0-9]{1,8}(?:[?#][^,\s]*)?$/i.test(trimmed) ||
     /\/[^/?#,\s]+\.[a-z0-9]{1,8}(?:[?#][^,\s]*)?$/i.test(trimmed)
   );
@@ -223,11 +250,6 @@ function findImplicitSrcsetCandidateSplit(
     return -1;
   }
 
-  const normalizedUrl = url.trim();
-  const requiresAbsoluteRightCandidate = /^(?:https?:|file:)/i.test(
-    normalizedUrl
-  );
-
   for (let index = 0; index < url.length; index += 1) {
     if (url[index] !== ',') {
       continue;
@@ -236,13 +258,14 @@ function findImplicitSrcsetCandidateSplit(
     const left = url.slice(0, index);
     const right = url.slice(index + 1);
     const rightSegment = right.split(',')[0] ?? '';
+    const leftKind = getExplicitSrcsetUrlKind(left);
     if (
       looksLikeStandaloneSrcsetUrl(left) &&
       looksLikeStandaloneSrcsetUrl(rightSegment)
     ) {
       if (
-        requiresAbsoluteRightCandidate &&
-        !/^(?:https?:|file:)/i.test(rightSegment.trim())
+        leftKind &&
+        getExplicitSrcsetUrlKind(rightSegment.trim()) !== leftKind
       ) {
         continue;
       }
