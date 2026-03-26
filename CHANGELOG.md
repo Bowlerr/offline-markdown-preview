@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- Add `offlineMarkdownViewer.preview.useMarkdownPreviewGithubStyling` to import CSS directly from the installed `bierner.markdown-preview-github-styles` extension
+- Make the preview/export markdown root compatible with GitHub-style `.markdown-body` selectors while keeping OMV chrome outside that styled content root
+- Extend the preview styling command and docs so installed GitHub styling can be enabled without copying versioned extension CSS paths
+
 ## 0.2.0
 
 - Add `offlineMarkdownViewer.preview.globalCustomCssPath` for user-level preview styling and compose it with workspace- and folder-level `preview.customCssPath`

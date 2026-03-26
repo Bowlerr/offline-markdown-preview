@@ -12,12 +12,38 @@ export interface FrontmatterInfo {
   data: Record<string, unknown>;
 }
 
+export interface GitHubMarkdownStylePayload {
+  enabled: boolean;
+  colorMode: 'auto' | 'system' | 'light' | 'dark';
+  lightTheme:
+    | 'light'
+    | 'light_high_contrast'
+    | 'light_colorblind'
+    | 'light_tritanopia'
+    | 'dark'
+    | 'dark_high_contrast'
+    | 'dark_colorblind'
+    | 'dark_tritanopia'
+    | 'dark_dimmed';
+  darkTheme:
+    | 'light'
+    | 'light_high_contrast'
+    | 'light_colorblind'
+    | 'light_tritanopia'
+    | 'dark'
+    | 'dark_high_contrast'
+    | 'dark_colorblind'
+    | 'dark_tritanopia'
+    | 'dark_dimmed';
+}
+
 export interface PreviewSettingsPayload {
   enableMermaid: boolean;
   enableMath: boolean;
   scrollSync: boolean;
   sanitizeHtml: boolean;
   showFrontmatter: boolean;
+  githubMarkdownStyle: GitHubMarkdownStylePayload;
 }
 
 export interface RenderPayload {
@@ -129,6 +155,7 @@ export interface HtmlExportSnapshotMessage {
   type: 'htmlExportSnapshot';
   requestId: number;
   html: string;
+  themeVariables?: Record<string, string>;
 }
 
 export type WebviewToExtensionMessage =

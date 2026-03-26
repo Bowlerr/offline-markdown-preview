@@ -167,6 +167,12 @@
           "default": false,
           "description": "Allow loading remote http(s) images in preview. Disabled by default for offline/privacy safety."
         },
+        "offlineMarkdownViewer.preview.useMarkdownPreviewGithubStyling": {
+          "type": "boolean",
+          "scope": "machine",
+          "default": false,
+          "description": "Load CSS from the installed bierner.markdown-preview-github-styles extension before any configured custom preview CSS."
+        },
         "offlineMarkdownViewer.export.embedImages": {
           "type": "boolean",
           "default": false,
@@ -183,13 +189,13 @@
           "type": "string",
           "scope": "machine",
           "default": "",
-          "description": "Absolute path to a user-level .css file appended to every preview."
+          "description": "Absolute path to a user-level .css file appended after OMV base CSS and any imported GitHub preview styling."
         },
         "offlineMarkdownViewer.preview.customCssPath": {
           "type": "string",
           "scope": "resource",
           "default": "",
-          "description": "Workspace-relative CSS file path to append to the preview (workspace/folder settings only)."
+          "description": "Workspace-relative CSS file path to append last in the preview style order (workspace/folder settings only)."
         },
         "offlineMarkdownViewer.preview.showFrontmatter": {
           "type": "boolean",

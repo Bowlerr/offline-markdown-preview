@@ -81,6 +81,7 @@ These VS Code settings control rendering, safety, and performance:
 - `offlineMarkdownViewer.externalLinks.confirm` (default: `true`): confirm before opening external links.
 - `offlineMarkdownViewer.preview.autoOpen` (default: `true`): auto-open/reuse preview when a Markdown editor becomes active.
 - `offlineMarkdownViewer.preview.allowRemoteImages` (default: `false`): allow loading remote `http(s)` images in preview. When off, remote images are shown as a download action and cached locally for preview use.
+- `offlineMarkdownViewer.preview.useMarkdownPreviewGithubStyling` (default: `false`): load CSS from the installed `bierner.markdown-preview-github-styles` extension before any configured custom CSS, while respecting that extension's `colorTheme`, `lightTheme`, and `darkTheme` settings.
 - `offlineMarkdownViewer.preview.maxImageMB` (default: `8`): maximum local image size loaded into preview.
 - `offlineMarkdownViewer.export.embedImages` (default: `false`): embed local images as data URIs for HTML export (privacy warning shown).
 - `offlineMarkdownViewer.performance.debounceMs` (default: `120`): debounce delay for live preview updates.
@@ -90,28 +91,37 @@ These VS Code settings control rendering, safety, and performance:
 
 ## Custom CSS
 
+If you already have **Markdown Preview Github Styling** installed, the simplest GitHub-style setup is to enable `offlineMarkdownViewer.preview.useMarkdownPreviewGithubStyling` or run **Offline Markdown Preview: Set Custom CSS** and choose the installed GitHub styling option.
+
 Use `offlineMarkdownViewer.preview.globalCustomCssPath` in user settings to apply a stylesheet everywhere, then optionally layer `offlineMarkdownViewer.preview.customCssPath` in a workspace for repo-specific tweaks.
 
-If both are set, the global stylesheet is injected first and the workspace stylesheet is injected second, so workspace rules win on conflicts.
+Preview styles are applied in this order:
 
-You can also run **Offline Markdown Preview: Set Custom CSS** from the Command Palette to pick a global or workspace stylesheet without editing settings JSON manually.
+1. Offline Markdown Preview base CSS
+2. Installed GitHub Markdown Preview Styling CSS, if enabled
+3. Global custom CSS
+4. Workspace or folder custom CSS
+
+If both custom CSS settings are set, the global stylesheet is injected first and the workspace stylesheet is injected second, so workspace rules win on conflicts.
+
+You can also run **Offline Markdown Preview: Set Custom CSS** from the Command Palette to enable installed GitHub styling or pick a global/workspace stylesheet without editing settings JSON manually.
 
 For a full setup guide, example CSS, and GitHub-style walkthrough, see [docs/custom-css/README.md](docs/custom-css/README.md).
 
 ## Commands
 
-| Command                                                   | Purpose                                          |
-| --------------------------------------------------------- | ------------------------------------------------ |
-| `Offline Markdown Preview: Open Preview`                  | Open the Markdown preview panel                  |
-| `Offline Markdown Preview: Open Preview To Side`          | Open the preview beside the active editor        |
-| `Offline Markdown Preview: Export HTML`                   | Export the current preview/document as HTML      |
-| `Offline Markdown Preview: Export PDF`                    | Export the current preview/document as PDF       |
-| `Offline Markdown Preview: Set Custom CSS`                | Pick or clear a global/workspace custom CSS file |
-| `Offline Markdown Preview: Show Remote Image Cache Usage` | Show current remote-image cache size/file counts |
-| `Offline Markdown Preview: Clear Remote Image Cache`      | Delete cached remote images used by preview      |
-| `Offline Markdown Preview: Toggle Scroll Sync`            | Enable/disable editor <-> preview scroll sync    |
-| `Offline Markdown Preview: Copy Heading Link`             | Copy a heading anchor link (outline context)     |
-| `Offline Markdown Preview: Quick Pick Heading`            | Jump to a heading via quick pick                 |
+| Command                                                   | Purpose                                                 |
+| --------------------------------------------------------- | ------------------------------------------------------- |
+| `Offline Markdown Preview: Open Preview`                  | Open the Markdown preview panel                         |
+| `Offline Markdown Preview: Open Preview To Side`          | Open the preview beside the active editor               |
+| `Offline Markdown Preview: Export HTML`                   | Export the current preview/document as HTML             |
+| `Offline Markdown Preview: Export PDF`                    | Export the current preview/document as PDF              |
+| `Offline Markdown Preview: Set Custom CSS`                | Enable installed GitHub styling or configure custom CSS |
+| `Offline Markdown Preview: Show Remote Image Cache Usage` | Show current remote-image cache size/file counts        |
+| `Offline Markdown Preview: Clear Remote Image Cache`      | Delete cached remote images used by preview             |
+| `Offline Markdown Preview: Toggle Scroll Sync`            | Enable/disable editor <-> preview scroll sync           |
+| `Offline Markdown Preview: Copy Heading Link`             | Copy a heading anchor link (outline context)            |
+| `Offline Markdown Preview: Quick Pick Heading`            | Jump to a heading via quick pick                        |
 
 ## Remote Image Cache
 
@@ -137,7 +147,7 @@ Preview-local shortcuts (when focus is inside the preview webview):
 - **Sanitization can be disabled** for advanced cases, but this is unsafe for untrusted Markdown/HTML content.
 - **Paths outside the workspace may be blocked** for preview safety when resolving local resources.
 - **Large images are capped** by `offlineMarkdownViewer.preview.maxImageMB` to avoid excessive memory usage in preview.
-- **Custom CSS supports two scopes**: `offlineMarkdownViewer.preview.globalCustomCssPath` accepts an explicitly configured absolute `.css` file from user settings, while `offlineMarkdownViewer.preview.customCssPath` accepts only workspace- or folder-local `.css` files. When both are set, workspace or folder CSS is applied after the global stylesheet and takes precedence.
+- **Preview styling supports multiple layers**: `offlineMarkdownViewer.preview.useMarkdownPreviewGithubStyling` imports CSS from the installed `bierner.markdown-preview-github-styles` extension, `offlineMarkdownViewer.preview.globalCustomCssPath` accepts an explicitly configured absolute `.css` file from user settings, and `offlineMarkdownViewer.preview.customCssPath` accepts only workspace- or folder-local `.css` files. Workspace or folder CSS is applied last and takes precedence.
 - **PDF export behavior depends on the VS Code/webview print route** and may vary slightly by platform.
 
 ## Troubleshooting
@@ -147,6 +157,7 @@ Preview-local shortcuts (when focus is inside the preview webview):
 - **Images missing**: check workspace path restrictions and `offlineMarkdownViewer.preview.maxImageMB` for large local images.
 - **Downloaded remote images not showing**: run **Show Remote Image Cache Usage** and verify cache directories exist/readable, then retry or clear cache.
 - **Custom CSS not applied**: ensure `offlineMarkdownViewer.preview.globalCustomCssPath` points to an absolute `.css` file you explicitly opted into in user settings, or `offlineMarkdownViewer.preview.customCssPath` points to a workspace- or folder-local `.css` file. Workspace/folder CSS overrides global CSS on conflicts.
+- **Installed GitHub styling not applied**: verify `bierner.markdown-preview-github-styles` is installed and `offlineMarkdownViewer.preview.useMarkdownPreviewGithubStyling` is enabled.
 - **External links are blocked/prompting**: this is expected; review `offlineMarkdownViewer.externalLinks.confirm` and use explicit link opens.
 
 ## Changelog

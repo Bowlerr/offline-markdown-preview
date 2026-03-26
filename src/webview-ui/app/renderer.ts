@@ -9,10 +9,17 @@ import 'prismjs/components/prism-json';
 import 'prismjs/components/prism-css';
 import 'prismjs/components/prism-bash';
 
-import type { RenderPayload, TocItem } from '../../extension/messaging/protocol';
+import type {
+  RenderPayload,
+  TocItem
+} from '../../extension/messaging/protocol';
+import { getEffectiveMermaidThemeKind } from './themeUtils';
 
 export interface RendererBridge {
-  onOpenLink(href: string, kindHint?: 'heading' | 'external' | 'relative' | 'unknown'): void;
+  onOpenLink(
+    href: string,
+    kindHint?: 'heading' | 'external' | 'relative' | 'unknown'
+  ): void;
   onHeadingSelect(id: string): void;
   onCopyHeadingLink(id: string): void;
   onOpenImage(src: string): void;
@@ -32,12 +39,16 @@ export class PreviewRenderer {
   private toc: TocItem[] = [];
   private activeHeadingId: string | undefined;
   private readonly content: HTMLElement;
+  private readonly styledRoot: HTMLElement;
   private readonly frontmatter: HTMLDetailsElement;
   private readonly banner: HTMLElement;
   private mermaidInitialized = false;
   private mermaidThemeSignature = '';
 
-  constructor(private readonly host: HTMLElement, private readonly bridge: RendererBridge) {
+  constructor(
+    private readonly host: HTMLElement,
+    private readonly bridge: RendererBridge
+  ) {
     this.banner = document.createElement('div');
     this.banner.className = 'omv-status-banner';
     this.banner.hidden = true;
@@ -46,10 +57,16 @@ export class PreviewRenderer {
     this.frontmatter.className = 'omv-frontmatter';
     this.frontmatter.hidden = true;
 
-    this.content = document.createElement('div');
-    this.content.className = 'omv-content';
+    this.styledRoot = document.createElement('div');
+    this.styledRoot.className =
+      'omv-content markdown-body github-markdown-body';
 
-    this.host.append(this.banner, this.frontmatter, this.content);
+    this.content = document.createElement('div');
+    this.content.className = 'github-markdown-content';
+
+    this.styledRoot.append(this.content);
+
+    this.host.append(this.banner, this.frontmatter, this.styledRoot);
     this.host.addEventListener('click', (event) => this.handleClick(event));
   }
 
@@ -65,8 +82,13 @@ export class PreviewRenderer {
     return this.activeHeadingId;
   }
 
+  getComputedThemeVariables(): Record<string, string> {
+    return collectThemeVariables(this.styledRoot);
+  }
+
   async render(payload: RenderPayload): Promise<void> {
     this.toc = payload.toc;
+    this.applyGitHubMarkdownStyle(payload.settings);
     this.renderFrontmatter(payload);
     const tableAlignments = extractTableAlignments(payload.html);
 
@@ -92,6 +114,7 @@ export class PreviewRenderer {
       : payload.html;
 
     this.content.innerHTML = String(sanitized);
+    applyContentTheme(this.styledRoot);
     applyTableAlignments(this.content, tableAlignments);
     this.decorateHeadings();
     this.decorateImageActions();
@@ -106,6 +129,24 @@ export class PreviewRenderer {
 
   setActiveHeading(id?: string): void {
     this.activeHeadingId = id;
+  }
+
+  async refreshTheme(settings: RenderPayload['settings']): Promise<void> {
+    this.applyGitHubMarkdownStyle(settings);
+    applyContentTheme(this.styledRoot);
+    await this.enhanceMermaid(settings.enableMermaid);
+  }
+
+  private applyGitHubMarkdownStyle(settings: RenderPayload['settings']): void {
+    const githubStyle = settings.githubMarkdownStyle;
+    this.host.classList.toggle(
+      'omv-uses-github-markdown-style',
+      githubStyle.enabled
+    );
+
+    this.styledRoot.dataset.colorMode = githubStyle.colorMode;
+    this.styledRoot.dataset.lightTheme = githubStyle.lightTheme;
+    this.styledRoot.dataset.darkTheme = githubStyle.darkTheme;
   }
 
   private renderFrontmatter(payload: RenderPayload): void {
@@ -130,11 +171,13 @@ export class PreviewRenderer {
       return;
     }
     this.banner.hidden = false;
-    this.banner.textContent = 'Warning: HTML sanitization is disabled for this preview.';
+    this.banner.textContent =
+      'Warning: HTML sanitization is disabled for this preview.';
   }
 
   private decorateHeadings(): void {
-    const headings = this.content.querySelectorAll<HTMLElement>('h1,h2,h3,h4,h5,h6');
+    const headings =
+      this.content.querySelectorAll<HTMLElement>('h1,h2,h3,h4,h5,h6');
     for (const heading of headings) {
       const id = heading.id;
       if (!id) continue;
@@ -153,7 +196,9 @@ export class PreviewRenderer {
   }
 
   private decorateImageActions(): void {
-    const imgs = this.content.querySelectorAll<HTMLImageElement>('img[data-local-src]');
+    const imgs = this.content.querySelectorAll<HTMLImageElement>(
+      'img[data-local-src]'
+    );
     for (const img of imgs) {
       img.addEventListener('click', () => {
         const localSrc = img.getAttribute('data-local-src');
@@ -161,7 +206,9 @@ export class PreviewRenderer {
       });
     }
 
-    const remoteImgs = this.content.querySelectorAll<HTMLImageElement>('img[data-remote-src]');
+    const remoteImgs = this.content.querySelectorAll<HTMLImageElement>(
+      'img[data-remote-src]'
+    );
     for (const img of remoteImgs) {
       const src = img.getAttribute('data-remote-src');
       if (!src) continue;
@@ -184,7 +231,9 @@ export class PreviewRenderer {
   }
 
   private async enhanceMath(enableMath: boolean): Promise<void> {
-    const nodes = [...this.content.querySelectorAll<HTMLElement>('[data-math]')];
+    const nodes = [
+      ...this.content.querySelectorAll<HTMLElement>('[data-math]')
+    ];
     if (!enableMath) {
       for (const node of nodes) {
         const expr = decodeBase64(node.dataset.math ?? '');
@@ -215,7 +264,11 @@ export class PreviewRenderer {
   }
 
   private async enhanceMermaid(enableMermaid: boolean): Promise<void> {
-    const nodes = [...this.content.querySelectorAll<HTMLElement>('.omv-mermaid[data-mermaid]')];
+    const nodes = [
+      ...this.content.querySelectorAll<HTMLElement>(
+        '.omv-mermaid[data-mermaid]'
+      )
+    ];
     if (!enableMermaid) {
       for (const node of nodes) {
         node.textContent = decodeBase64(node.dataset.mermaid ?? '');
@@ -223,8 +276,11 @@ export class PreviewRenderer {
       return;
     }
 
-    const mermaidTheme = buildMermaidThemeConfig();
-    if (!this.mermaidInitialized || this.mermaidThemeSignature !== mermaidTheme.signature) {
+    const mermaidTheme = buildMermaidThemeConfig(this.styledRoot);
+    if (
+      !this.mermaidInitialized ||
+      this.mermaidThemeSignature !== mermaidTheme.signature
+    ) {
       try {
         mermaid.initialize({
           startOnLoad: false,
@@ -291,14 +347,28 @@ export class PreviewRenderer {
         const recovery = buildMermaidRecoveryAttempt(code, diagramType);
         if (recovery) {
           try {
-            const recovered = await mermaid.render(`${id}-recovery`, recovery.code);
+            const recovered = await mermaid.render(
+              `${id}-recovery`,
+              recovery.code
+            );
             node.setAttribute('data-omv-mermaid-recovered', 'true');
-            node.setAttribute('data-omv-mermaid-recovery-strategy', recovery.strategy);
-            node.replaceChildren(buildMermaidSvgNode(recovered.svg, diagramType));
+            node.setAttribute(
+              'data-omv-mermaid-recovery-strategy',
+              recovery.strategy
+            );
+            node.replaceChildren(
+              buildMermaidSvgNode(recovered.svg, diagramType)
+            );
             continue;
           } catch (recoveryError) {
-            const hints = buildMermaidErrorHints(code, diagramType, recoveryError);
-            node.replaceChildren(buildMermaidErrorNode(code, recoveryError, hints));
+            const hints = buildMermaidErrorHints(
+              code,
+              diagramType,
+              recoveryError
+            );
+            node.replaceChildren(
+              buildMermaidErrorNode(code, recoveryError, hints)
+            );
             continue;
           }
         }
@@ -317,7 +387,9 @@ export class PreviewRenderer {
     const target = event.target as HTMLElement | null;
     if (!target) return;
 
-    const remoteDownload = target.closest<HTMLButtonElement>('button[data-remote-image-src]');
+    const remoteDownload = target.closest<HTMLButtonElement>(
+      'button[data-remote-image-src]'
+    );
     if (remoteDownload) {
       event.preventDefault();
       const src = remoteDownload.dataset.remoteImageSrc;
@@ -346,20 +418,56 @@ export class PreviewRenderer {
   }
 }
 
-function buildMermaidThemeConfig(): {
+function buildMermaidThemeConfig(themeRoot: HTMLElement): {
   signature: string;
   themeVariables: Record<string, string | number | boolean>;
 } {
   const bodyStyle = getComputedStyle(document.body);
-  const bodyFontSize = Number.parseFloat(bodyStyle.fontSize || '14');
-  const themeKind = document.body.dataset.vscodeThemeKind ?? 'light';
+  const rootStyle = getComputedStyle(themeRoot);
+  const probe = createThemeProbe(themeRoot);
+  const linkStyle = getComputedStyle(probe.link);
+  const preStyle = getComputedStyle(probe.pre);
+  const blockquoteStyle = getComputedStyle(probe.blockquote);
 
-  const fg = bodyStyle.color || 'rgb(204, 204, 204)';
-  const bg = bodyStyle.backgroundColor || 'rgb(30, 30, 30)';
-  const border = resolveThemeColor('var(--omv-border)', 'borderTopColor', 'rgba(127,127,127,0.35)');
-  const accent = resolveThemeColor('var(--omv-accent)', 'color', fg);
-  const codeBg = resolveThemeColor('var(--omv-code-bg)', 'backgroundColor', bg);
-  const editorBg = resolveThemeColor('var(--vscode-editor-background)', 'backgroundColor', bg);
+  const bodyFontSize = Number.parseFloat(bodyStyle.fontSize || '14');
+
+  const fg = firstDefinedColor(
+    rootStyle.color,
+    bodyStyle.color,
+    'rgb(204, 204, 204)'
+  );
+  const bg = firstOpaqueColor(
+    rootStyle.backgroundColor,
+    bodyStyle.backgroundColor,
+    'rgb(30, 30, 30)'
+  );
+  const border = firstOpaqueColor(
+    blockquoteStyle.borderLeftColor,
+    preStyle.borderTopColor,
+    resolveThemeColor(
+      'var(--omv-border)',
+      'borderTopColor',
+      'rgba(127,127,127,0.35)'
+    ),
+    fg
+  );
+  const accent = firstDefinedColor(
+    linkStyle.color,
+    resolveThemeColor('var(--omv-accent)', 'color', fg),
+    fg
+  );
+  const codeBg = firstOpaqueColor(
+    preStyle.backgroundColor,
+    resolveThemeColor('var(--omv-code-bg)', 'backgroundColor', bg),
+    bg
+  );
+  const editorBg = bg;
+  const themeKind = getEffectiveMermaidThemeKind(
+    bg,
+    document.body.dataset.vscodeThemeKind ?? 'light'
+  );
+
+  probe.root.remove();
 
   // High-contrast should prefer stronger edge/node borders.
   const strongBorder = themeKind === 'high-contrast' ? fg : border;
@@ -494,16 +602,265 @@ function getMermaidCategoricalPalette(themeKind: string): string[] {
   ];
 }
 
+function createThemeProbe(themeRoot: HTMLElement): {
+  root: HTMLDivElement;
+  content: HTMLDivElement;
+  link: HTMLAnchorElement;
+  code: HTMLElement;
+  pre: HTMLPreElement;
+  blockquote: HTMLQuoteElement;
+} {
+  const root = document.createElement('div');
+  root.setAttribute('aria-hidden', 'true');
+  root.style.position = 'absolute';
+  root.style.left = '-99999px';
+  root.style.top = '0';
+  root.style.visibility = 'hidden';
+  root.style.pointerEvents = 'none';
+  // Mirror the live styled root so the probe picks up OMV base rules as well as
+  // any imported GitHub markdown selectors.
+  root.className = themeRoot.className;
+  root.dataset.colorMode = themeRoot.dataset.colorMode ?? 'auto';
+  root.dataset.lightTheme = themeRoot.dataset.lightTheme ?? 'light';
+  root.dataset.darkTheme = themeRoot.dataset.darkTheme ?? 'dark';
+
+  const content = document.createElement('div');
+  content.className = 'github-markdown-content';
+
+  const link = document.createElement('a');
+  link.href = '#';
+  link.textContent = 'link';
+
+  const code = document.createElement('code');
+  code.textContent = 'const value = 1;';
+
+  const pre = document.createElement('pre');
+  pre.textContent = 'code';
+
+  const blockquote = document.createElement('blockquote');
+  blockquote.textContent = 'quote';
+
+  content.append(link, code, pre, blockquote);
+  root.append(content);
+  (themeRoot.parentElement ?? themeRoot).append(root);
+  return { root, content, link, code, pre, blockquote };
+}
+
+const computedThemeVarNames = [
+  '--omv-mermaid-panel-bg',
+  '--omv-mermaid-viewport-bg',
+  '--omv-mermaid-border',
+  '--omv-mermaid-muted',
+  '--omv-mermaid-accent',
+  '--omv-active-pre-fg',
+  '--omv-active-pre-bg',
+  '--omv-active-pre-border',
+  '--omv-active-pre-radius',
+  '--omv-active-inline-code-fg',
+  '--omv-active-inline-code-bg',
+  '--omv-active-inline-code-radius',
+  '--omv-code-fg',
+  '--omv-code-bg',
+  '--omv-syntax-comment',
+  '--omv-syntax-keyword',
+  '--omv-syntax-string',
+  '--omv-syntax-function',
+  '--omv-syntax-class',
+  '--omv-syntax-number',
+  '--omv-syntax-constant',
+  '--omv-syntax-property',
+  '--omv-syntax-tag',
+  '--omv-syntax-attr-name',
+  '--omv-syntax-operator',
+  '--omv-syntax-punctuation',
+  '--omv-syntax-inserted',
+  '--omv-syntax-deleted'
+] as const;
+
+function resetComputedThemeVars(themeRoot: HTMLElement): void {
+  for (const name of computedThemeVarNames) {
+    themeRoot.style.removeProperty(name);
+  }
+}
+
+function applyContentTheme(themeRoot: HTMLElement): void {
+  resetComputedThemeVars(themeRoot);
+
+  const probe = createThemeProbe(themeRoot);
+  const rootStyle = getComputedStyle(themeRoot);
+  const linkStyle = getComputedStyle(probe.link);
+  const codeStyle = getComputedStyle(probe.code);
+  const preStyle = getComputedStyle(probe.pre);
+  const blockquoteStyle = getComputedStyle(probe.blockquote);
+
+  const panelBg = firstOpaqueColor(
+    preStyle.backgroundColor,
+    rootStyle.backgroundColor,
+    'rgba(0, 0, 0, 0)'
+  );
+  const viewportBg = firstOpaqueColor(
+    rootStyle.backgroundColor,
+    panelBg,
+    'rgba(0, 0, 0, 0)'
+  );
+  const border = firstOpaqueColor(
+    preStyle.borderTopColor,
+    blockquoteStyle.borderLeftColor,
+    'rgba(127,127,127,0.35)'
+  );
+  const muted = firstDefinedColor(
+    blockquoteStyle.color,
+    rootStyle.color,
+    'inherit'
+  );
+  const accent = firstDefinedColor(linkStyle.color, rootStyle.color, 'inherit');
+
+  themeRoot.style.setProperty('--omv-mermaid-panel-bg', panelBg);
+  themeRoot.style.setProperty('--omv-mermaid-viewport-bg', viewportBg);
+  themeRoot.style.setProperty('--omv-mermaid-border', border);
+  themeRoot.style.setProperty('--omv-mermaid-muted', muted);
+  themeRoot.style.setProperty('--omv-mermaid-accent', accent);
+
+  applyCodeTheme(themeRoot, {
+    rootStyle,
+    codeStyle,
+    preStyle
+  });
+
+  probe.root.remove();
+}
+
+function collectThemeVariables(themeRoot: HTMLElement): Record<string, string> {
+  const variables: Record<string, string> = {};
+  for (const name of computedThemeVarNames) {
+    const value = themeRoot.style.getPropertyValue(name).trim();
+    if (value) {
+      variables[name] = value;
+    }
+  }
+  return variables;
+}
+
+function applyCodeTheme(
+  themeRoot: HTMLElement,
+  styles: {
+    rootStyle: CSSStyleDeclaration;
+    codeStyle: CSSStyleDeclaration;
+    preStyle: CSSStyleDeclaration;
+  }
+): void {
+  const preFg = firstDefinedColor(
+    styles.preStyle.color,
+    styles.rootStyle.color,
+    'inherit'
+  );
+  const preBg = firstOpaqueColor(
+    styles.preStyle.backgroundColor,
+    'rgba(0, 0, 0, 0)'
+  );
+  const preBorder = firstOpaqueColor(
+    styles.preStyle.borderTopColor,
+    'rgba(0, 0, 0, 0)'
+  );
+  const inlineFg = firstDefinedColor(
+    styles.codeStyle.color,
+    styles.rootStyle.color,
+    'inherit'
+  );
+  const inlineBg = firstOpaqueColor(
+    styles.codeStyle.backgroundColor,
+    preBg,
+    'rgba(0, 0, 0, 0)'
+  );
+
+  themeRoot.style.setProperty('--omv-active-pre-fg', preFg);
+  themeRoot.style.setProperty('--omv-active-pre-bg', preBg);
+  themeRoot.style.setProperty('--omv-active-pre-border', preBorder);
+  themeRoot.style.setProperty(
+    '--omv-active-pre-radius',
+    styles.preStyle.borderRadius || '8px'
+  );
+  themeRoot.style.setProperty('--omv-active-inline-code-fg', inlineFg);
+  themeRoot.style.setProperty('--omv-active-inline-code-bg', inlineBg);
+  themeRoot.style.setProperty(
+    '--omv-active-inline-code-radius',
+    styles.codeStyle.borderRadius || '4px'
+  );
+  themeRoot.style.setProperty('--omv-code-fg', preFg);
+  themeRoot.style.setProperty('--omv-code-bg', preBg);
+
+  const syntaxVarMap = {
+    '--omv-syntax-comment': '--color-prettylights-syntax-comment',
+    '--omv-syntax-keyword': '--color-prettylights-syntax-keyword',
+    '--omv-syntax-string': '--color-prettylights-syntax-string',
+    '--omv-syntax-function': '--color-prettylights-syntax-entity',
+    '--omv-syntax-class': '--color-prettylights-syntax-entity',
+    '--omv-syntax-number': '--color-prettylights-syntax-constant',
+    '--omv-syntax-constant': '--color-prettylights-syntax-variable',
+    '--omv-syntax-property': '--color-prettylights-syntax-constant',
+    '--omv-syntax-tag': '--color-prettylights-syntax-entity-tag',
+    '--omv-syntax-attr-name': '--color-prettylights-syntax-constant',
+    '--omv-syntax-operator': '--fgColor-default',
+    '--omv-syntax-punctuation': '--fgColor-muted',
+    '--omv-syntax-inserted': '--color-prettylights-syntax-markup-inserted-text',
+    '--omv-syntax-deleted': '--color-prettylights-syntax-markup-deleted-text'
+  } as const;
+
+  for (const [targetVar, sourceVar] of Object.entries(syntaxVarMap)) {
+    const value = styles.rootStyle.getPropertyValue(sourceVar).trim();
+    if (value) {
+      themeRoot.style.setProperty(targetVar, value);
+    } else {
+      themeRoot.style.removeProperty(targetVar);
+    }
+  }
+}
+
+function isTransparentColor(value: string | undefined | null): boolean {
+  const normalized = String(value ?? '')
+    .trim()
+    .toLowerCase();
+  return (
+    !normalized ||
+    normalized === 'transparent' ||
+    normalized === 'rgba(0, 0, 0, 0)' ||
+    normalized === 'rgba(0,0,0,0)'
+  );
+}
+
+function firstOpaqueColor(...values: string[]): string {
+  for (const value of values) {
+    if (!isTransparentColor(value)) {
+      return value;
+    }
+  }
+  return values[values.length - 1] ?? 'rgb(30, 30, 30)';
+}
+
+function firstDefinedColor(...values: string[]): string {
+  for (const value of values) {
+    if (String(value ?? '').trim()) {
+      return value;
+    }
+  }
+  return values[values.length - 1] ?? 'rgb(204, 204, 204)';
+}
+
 function getReadableTextColorForHex(hex: string): string {
   const rgb = parseHexColor(hex);
   if (!rgb) return '#111111';
   const [r, g, b] = rgb.map((v) => v / 255);
-  const linear = [r, g, b].map((c) => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4));
-  const luminance = 0.2126 * linear[0] + 0.7152 * linear[1] + 0.0722 * linear[2];
+  const linear = [r, g, b].map((c) =>
+    c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4
+  );
+  const luminance =
+    0.2126 * linear[0] + 0.7152 * linear[1] + 0.0722 * linear[2];
   return luminance > 0.45 ? '#111111' : '#f5f7fa';
 }
 
-function parseHexColor(hex: string | undefined | null): [number, number, number] | undefined {
+function parseHexColor(
+  hex: string | undefined | null
+): [number, number, number] | undefined {
   const value = String(hex ?? '')
     .trim()
     .replace(/^#/, '');
@@ -537,7 +894,10 @@ function buildMermaidSvgNode(svgMarkup: string, diagramType?: string): Node {
   if (svg) {
     // Mermaid often emits inline sizing styles. Normalize sizing to the preview container.
     svg.removeAttribute('style');
-    const hasValidViewBox = svg.viewBox.baseVal && svg.viewBox.baseVal.width > 0 && svg.viewBox.baseVal.height > 0;
+    const hasValidViewBox =
+      svg.viewBox.baseVal &&
+      svg.viewBox.baseVal.width > 0 &&
+      svg.viewBox.baseVal.height > 0;
     if (hasValidViewBox) {
       const viewBox = svg.viewBox.baseVal;
       const widthAttr = svg.getAttribute('width') ?? '';
@@ -572,14 +932,19 @@ function buildMermaidSvgNode(svgMarkup: string, diagramType?: string): Node {
   return wrapper.firstElementChild ?? document.createTextNode(svgMarkup);
 }
 
-function styleMermaidEdgeLabelBackgrounds(svg: SVGSVGElement, diagramType?: string): void {
+function styleMermaidEdgeLabelBackgrounds(
+  svg: SVGSVGElement,
+  diagramType?: string
+): void {
   // This visual patch is intended for flowchart edge labels like |sanitizeHtml=true|.
   // Applying it to sequence/class labels distorts callout/message bubbles.
   if (diagramType && !/^(flowchart|graph)$/i.test(diagramType)) {
     return;
   }
   // Keep edge-label text/layout untouched. Only enhance the background rect so labels don't clip.
-  for (const rect of svg.querySelectorAll<SVGRectElement>('g.edgeLabel rect.labelBkg')) {
+  for (const rect of svg.querySelectorAll<SVGRectElement>(
+    'g.edgeLabel rect.labelBkg'
+  )) {
     const x = Number.parseFloat(rect.getAttribute('x') ?? '');
     const y = Number.parseFloat(rect.getAttribute('y') ?? '');
     const width = Number.parseFloat(rect.getAttribute('width') ?? '');
@@ -605,7 +970,9 @@ function styleMermaidEdgeLabelBackgrounds(svg: SVGSVGElement, diagramType?: stri
 function normalizePieLegendColors(svg: SVGSVGElement): void {
   // Mermaid pie slices use SVG attrs, but legend swatches are often emitted via inline style()
   // and can lose color under strict sanitization. Reapply legend colors from slice fills.
-  const sliceFills = Array.from(svg.querySelectorAll<SVGPathElement>('path.pieCircle'))
+  const sliceFills = Array.from(
+    svg.querySelectorAll<SVGPathElement>('path.pieCircle')
+  )
     .map((path) => path.getAttribute('fill') || path.style.fill || '')
     .filter((value) => value.trim().length > 0);
   if (sliceFills.length === 0) return;
@@ -621,7 +988,11 @@ function normalizePieLegendColors(svg: SVGSVGElement): void {
   });
 }
 
-function buildMermaidErrorNode(code: string, error: unknown, hints: string[] = []): HTMLElement {
+function buildMermaidErrorNode(
+  code: string,
+  error: unknown,
+  hints: string[] = []
+): HTMLElement {
   const root = document.createElement('div');
   root.className = 'omv-mermaid-error';
 
@@ -687,12 +1058,18 @@ function detectMermaidDiagramType(code: string | undefined | null): string {
   return match?.[1] ?? 'unknown';
 }
 
-function buildMermaidRecoveryAttempt(code: string, diagramType: string): MermaidRecoveryAttempt | undefined {
+function buildMermaidRecoveryAttempt(
+  code: string,
+  diagramType: string
+): MermaidRecoveryAttempt | undefined {
   const normalizedType = diagramType.trim().toLowerCase();
   if (/^requirement(diagram)?$/i.test(normalizedType)) {
     const normalized = normalizeRequirementDiagramSyntax(code);
     if (normalized !== code) {
-      return { code: normalized, strategy: 'requirement-diagram-normalization' };
+      return {
+        code: normalized,
+        strategy: 'requirement-diagram-normalization'
+      };
     }
     return undefined;
   }
@@ -740,14 +1117,20 @@ function normalizeBlockBetaNodeLabels(code: string): string {
   return lines.join('\n');
 }
 
-function buildMermaidErrorHints(code: string, diagramType: string, error: unknown): string[] {
+function buildMermaidErrorHints(
+  code: string,
+  diagramType: string,
+  error: unknown
+): string[] {
   const hints: string[] = [];
   const normalizedType = diagramType.trim().toLowerCase();
   const message = getErrorMessage(error);
 
   if (/^(flowchart|graph)$/i.test(normalizedType)) {
     if (/\[[^\n]*\[\][^\n]*\]/u.test(code)) {
-      hints.push('Flowchart labels with raw [] often fail inside A[...]. Use quoted labels: A["..."].');
+      hints.push(
+        'Flowchart labels with raw [] often fail inside A[...]. Use quoted labels: A["..."].'
+      );
     }
   }
 
@@ -759,21 +1142,29 @@ function buildMermaidErrorHints(code: string, diagramType: string, error: unknow
       hints.push('Use `docRef` (camelCase), not `docref`.');
     }
     if (/^\s*id\s*:\s*[^"\n]*-[^"\n]*$/mu.test(code)) {
-      hints.push('Use alphanumeric requirement IDs (for example `REQ1`) instead of `REQ-1`.');
+      hints.push(
+        'Use alphanumeric requirement IDs (for example `REQ1`) instead of `REQ-1`.'
+      );
     }
     if (/^\s*text\s*:\s*[^"\n]+\s+[^"\n]+$/mu.test(code)) {
-      hints.push('Quote multi-word `text:` values, e.g. `text: "render markdown offline"`.');
+      hints.push(
+        'Quote multi-word `text:` values, e.g. `text: "render markdown offline"`.'
+      );
     }
   }
 
   if (normalizedType === 'block-beta') {
     if (/^[ \t]*[A-Za-z_][\w-]*\[[^\]]+\]/mu.test(code)) {
-      hints.push('`block-beta` does not use flowchart node syntax like `A[Label]`; use `A|Label|` or plain `A`.');
+      hints.push(
+        '`block-beta` does not use flowchart node syntax like `A[Label]`; use `A|Label|` or plain `A`.'
+      );
     }
   }
 
   if (hints.length === 0 && /syntax error/i.test(message)) {
-    hints.push('This parser error is generic. Validate the snippet with Mermaid 11.12.x syntax rules.');
+    hints.push(
+      'This parser error is generic. Validate the snippet with Mermaid 11.12.x syntax rules.'
+    );
   }
 
   return Array.from(new Set(hints));
@@ -805,7 +1196,10 @@ function createMermaidInteractiveViewer(svg: SVGSVGElement): HTMLElement {
   viewport.className = 'omv-mermaid-viewport';
   viewport.tabIndex = 0;
   viewport.setAttribute('role', 'group');
-  viewport.setAttribute('aria-label', 'Mermaid diagram viewer. Drag to pan. Ctrl or Cmd + wheel to zoom.');
+  viewport.setAttribute(
+    'aria-label',
+    'Mermaid diagram viewer. Drag to pan. Ctrl or Cmd + wheel to zoom.'
+  );
 
   const canvas = document.createElement('div');
   canvas.className = 'omv-mermaid-canvas';
@@ -981,7 +1375,12 @@ function normalizeSvgViewBoxFromContent(svg: SVGSVGElement): void {
   }
   try {
     const bbox = svg.getBBox();
-    if (!Number.isFinite(bbox.width) || !Number.isFinite(bbox.height) || bbox.width <= 0 || bbox.height <= 0) {
+    if (
+      !Number.isFinite(bbox.width) ||
+      !Number.isFinite(bbox.height) ||
+      bbox.width <= 0 ||
+      bbox.height <= 0
+    ) {
       return;
     }
     const pad = 8;
@@ -1004,7 +1403,11 @@ function normalizeSvgViewBoxFromContent(svg: SVGSVGElement): void {
   }
 }
 
-function button(label: string, title: string, onClick: () => void): HTMLButtonElement {
+function button(
+  label: string,
+  title: string,
+  onClick: () => void
+): HTMLButtonElement {
   const el = document.createElement('button');
   el.type = 'button';
   el.className = 'omv-mermaid-btn';
@@ -1014,7 +1417,10 @@ function button(label: string, title: string, onClick: () => void): HTMLButtonEl
   return el;
 }
 
-function getSvgNaturalSize(svg: SVGSVGElement): { width: number; height: number } {
+function getSvgNaturalSize(svg: SVGSVGElement): {
+  width: number;
+  height: number;
+} {
   const viewBox = svg.viewBox.baseVal;
   if (viewBox && viewBox.width > 0 && viewBox.height > 0) {
     return { width: viewBox.width, height: viewBox.height };
@@ -1062,7 +1468,8 @@ function clampPan(
 }
 
 function getBootStyleNonce(): string | undefined {
-  const boot = (window as Window & { __OMV_BOOT__?: { styleNonce?: string } }).__OMV_BOOT__;
+  const boot = (window as Window & { __OMV_BOOT__?: { styleNonce?: string } })
+    .__OMV_BOOT__;
   return boot?.styleNonce;
 }
 
@@ -1078,7 +1485,10 @@ function resolveThemeColor(
   probe.style.overflow = 'hidden';
   probe.style.pointerEvents = 'none';
   probe.style.opacity = '0';
-  probe.style.setProperty(property === 'borderTopColor' ? 'border-top-color' : property, token);
+  probe.style.setProperty(
+    property === 'borderTopColor' ? 'border-top-color' : property,
+    token
+  );
   if (property === 'borderTopColor') {
     probe.style.borderTopStyle = 'solid';
     probe.style.borderTopWidth = '1px';
@@ -1092,7 +1502,9 @@ function resolveThemeColor(
         ? computed.backgroundColor
         : computed.color;
   probe.remove();
-  return resolved && !/^rgba?\(0,\s*0,\s*0(?:,\s*0)?\)$/i.test(resolved) ? resolved : fallback;
+  return resolved && !/^rgba?\(0,\s*0,\s*0(?:,\s*0)?\)$/i.test(resolved)
+    ? resolved
+    : fallback;
 }
 
 function decodeBase64(value: string): string {
@@ -1110,7 +1522,9 @@ function decodeBase64(value: string): string {
 function nextTick(): Promise<void> {
   return new Promise((resolve) => {
     if ('requestIdleCallback' in window) {
-      (window as Window & { requestIdleCallback: (cb: () => void) => number }).requestIdleCallback(() => resolve());
+      (
+        window as Window & { requestIdleCallback: (cb: () => void) => number }
+      ).requestIdleCallback(() => resolve());
       return;
     }
     setTimeout(resolve, 0);
@@ -1124,21 +1538,31 @@ function extractTableAlignments(rawHtml: string): TableAlignment[] {
   return Array.from(doc.querySelectorAll('table')).map((table) => {
     const row = table.querySelector('tr');
     if (!row) return [];
-    return Array.from(row.children).map((cell) => readAlignment(cell as HTMLElement));
+    return Array.from(row.children).map((cell) =>
+      readAlignment(cell as HTMLElement)
+    );
   });
 }
 
-function readAlignment(cell: HTMLElement): 'left' | 'center' | 'right' | undefined {
-  const alignAttr = cell.getAttribute('data-align') || cell.getAttribute('align');
+function readAlignment(
+  cell: HTMLElement
+): 'left' | 'center' | 'right' | undefined {
+  const alignAttr =
+    cell.getAttribute('data-align') || cell.getAttribute('align');
   if (alignAttr && /^(left|center|right)$/i.test(alignAttr)) {
     return alignAttr.toLowerCase() as 'left' | 'center' | 'right';
   }
   const style = cell.getAttribute('style') ?? '';
   const match = /text-align\s*:\s*(left|center|right)/i.exec(style);
-  return match ? (match[1].toLowerCase() as 'left' | 'center' | 'right') : undefined;
+  return match
+    ? (match[1].toLowerCase() as 'left' | 'center' | 'right')
+    : undefined;
 }
 
-function applyTableAlignments(root: HTMLElement, tableAlignments: TableAlignment[]): void {
+function applyTableAlignments(
+  root: HTMLElement,
+  tableAlignments: TableAlignment[]
+): void {
   const tables = root.querySelectorAll<HTMLTableElement>('table');
   tables.forEach((table, tableIndex) => {
     const aligns = tableAlignments[tableIndex] ?? [];
@@ -1148,7 +1572,11 @@ function applyTableAlignments(root: HTMLElement, tableAlignments: TableAlignment
       Array.from(row.children).forEach((cell, colIndex) => {
         const align = aligns[colIndex];
         if (!align) return;
-        cell.classList.remove('omv-align-left', 'omv-align-center', 'omv-align-right');
+        cell.classList.remove(
+          'omv-align-left',
+          'omv-align-center',
+          'omv-align-right'
+        );
         cell.classList.add(`omv-align-${align}`);
         (cell as HTMLElement).style.textAlign = align;
       });

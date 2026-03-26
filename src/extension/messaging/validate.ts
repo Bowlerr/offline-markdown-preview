@@ -9,14 +9,24 @@ const numberPercent = z.number().min(0).max(1);
 
 const webviewSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('ready') }),
-  z.object({ type: z.literal('previewScroll'), percent: numberPercent, line: z.number().int().min(0).optional() }),
+  z.object({
+    type: z.literal('previewScroll'),
+    percent: numberPercent,
+    line: z.number().int().min(0).optional()
+  }),
   z.object({
     type: z.literal('openLink'),
     href: z.string().min(1),
     kindHint: z.enum(['heading', 'external', 'relative', 'unknown']).optional()
   }),
-  z.object({ type: z.literal('headingSelected'), headingId: z.string().min(1) }),
-  z.object({ type: z.literal('copyHeadingLink'), headingId: z.string().min(1) }),
+  z.object({
+    type: z.literal('headingSelected'),
+    headingId: z.string().min(1)
+  }),
+  z.object({
+    type: z.literal('copyHeadingLink'),
+    headingId: z.string().min(1)
+  }),
   z.object({
     type: z.literal('search'),
     action: z.enum(['query', 'next', 'prev', 'clear']),
@@ -33,7 +43,8 @@ const webviewSchema = z.discriminatedUnion('type', [
   z.object({
     type: z.literal('htmlExportSnapshot'),
     requestId: z.number().int().nonnegative(),
-    html: z.string()
+    html: z.string(),
+    themeVariables: z.record(z.string()).optional()
   })
 ]);
 
@@ -61,7 +72,33 @@ const extSchema = z.discriminatedUnion('type', [
       enableMath: z.boolean(),
       scrollSync: z.boolean(),
       sanitizeHtml: z.boolean(),
-      showFrontmatter: z.boolean()
+      showFrontmatter: z.boolean(),
+      githubMarkdownStyle: z.object({
+        enabled: z.boolean(),
+        colorMode: z.enum(['auto', 'system', 'light', 'dark']),
+        lightTheme: z.enum([
+          'light',
+          'light_high_contrast',
+          'light_colorblind',
+          'light_tritanopia',
+          'dark',
+          'dark_high_contrast',
+          'dark_colorblind',
+          'dark_tritanopia',
+          'dark_dimmed'
+        ]),
+        darkTheme: z.enum([
+          'light',
+          'light_high_contrast',
+          'light_colorblind',
+          'light_tritanopia',
+          'dark',
+          'dark_high_contrast',
+          'dark_colorblind',
+          'dark_tritanopia',
+          'dark_dimmed'
+        ])
+      })
     })
   }),
   z.object({
@@ -70,8 +107,15 @@ const extSchema = z.discriminatedUnion('type', [
     line: z.number().int().min(0).optional(),
     source: z.literal('extension')
   }),
-  z.object({ type: z.literal('notify'), level: z.enum(['info', 'warning', 'error']), message: z.string() }),
-  z.object({ type: z.literal('searchCommand'), action: z.enum(['open', 'next', 'prev', 'clear']) }),
+  z.object({
+    type: z.literal('notify'),
+    level: z.enum(['info', 'warning', 'error']),
+    message: z.string()
+  }),
+  z.object({
+    type: z.literal('searchCommand'),
+    action: z.enum(['open', 'next', 'prev', 'clear'])
+  }),
   z.object({ type: z.literal('exportPdf') }),
   z.object({
     type: z.literal('requestHtmlExportSnapshot'),
@@ -87,6 +131,8 @@ export function parseWebviewMessage(value: unknown): WebviewToExtensionMessage {
   return webviewSchema.parse(value) as WebviewToExtensionMessage;
 }
 
-export function parseExtensionMessage(value: unknown): ExtensionToWebviewMessage {
+export function parseExtensionMessage(
+  value: unknown
+): ExtensionToWebviewMessage {
   return extSchema.parse(value) as ExtensionToWebviewMessage;
 }

@@ -3,6 +3,8 @@ import { createHash, randomBytes } from 'node:crypto';
 import * as path from 'node:path';
 import * as vscode from 'vscode';
 
+import type { GitHubMarkdownStylePayload } from '../../messaging/protocol';
+
 export interface ResolvedCustomCss {
   cssTexts: string[];
   key: string;
@@ -16,7 +18,33 @@ interface CustomCssConfig {
   workspaceScope?: CustomCssScope;
   workspaceBaseUri?: vscode.Uri;
   workspaceFolder?: vscode.WorkspaceFolder;
+  useMarkdownPreviewGithubStyling: boolean;
 }
+
+interface ContributedMarkdownStyleExtension {
+  extensionUri: vscode.Uri;
+  packageJSON?: {
+    contributes?: {
+      'markdown.previewStyles'?: unknown;
+    };
+  };
+}
+
+const githubThemeModes = ['auto', 'system', 'light', 'dark'] as const;
+const githubThemeNames = [
+  'light',
+  'light_high_contrast',
+  'light_colorblind',
+  'light_tritanopia',
+  'dark',
+  'dark_high_contrast',
+  'dark_colorblind',
+  'dark_tritanopia',
+  'dark_dimmed'
+] as const;
+
+type GitHubThemeMode = (typeof githubThemeModes)[number];
+type GitHubThemeName = (typeof githubThemeNames)[number];
 
 export function createNonce(): string {
   return randomBytes(16).toString('hex');
@@ -92,9 +120,7 @@ function getCustomCssConfig(documentUri: vscode.Uri): CustomCssConfig {
   const customCssInspect = cfg.inspect<string>('preview.customCssPath');
   const rawWorkspaceFolderPath = customCssInspect?.workspaceFolderValue;
   const rawWorkspacePath = customCssInspect?.workspaceValue;
-  const workspaceFolderPath = normalizeConfiguredPath(
-    rawWorkspaceFolderPath
-  );
+  const workspaceFolderPath = normalizeConfiguredPath(rawWorkspaceFolderPath);
   const workspacePath = normalizeConfiguredPath(rawWorkspacePath);
   const hasWorkspaceFolderOverride = rawWorkspaceFolderPath !== undefined;
 
@@ -115,13 +141,18 @@ function getCustomCssConfig(documentUri: vscode.Uri): CustomCssConfig {
       : workspacePath
         ? getWorkspaceCustomCssBaseUri()
         : undefined,
-    workspaceFolder
+    workspaceFolder,
+    useMarkdownPreviewGithubStyling: cfg.get<boolean>(
+      'preview.useMarkdownPreviewGithubStyling',
+      false
+    )
   };
 }
 
 function buildCustomCssKey(config: CustomCssConfig): string {
   return JSON.stringify({
     globalPath: config.globalPath ?? '',
+    useMarkdownPreviewGithubStyling: config.useMarkdownPreviewGithubStyling,
     workspaceBase: config.workspaceBaseUri?.fsPath ?? '',
     workspaceFolder: config.workspaceFolder?.uri.fsPath ?? '',
     workspaceScope: config.workspaceScope ?? '',
@@ -140,7 +171,120 @@ function getOpenDocumentText(uri: vscode.Uri): string | undefined {
   return openDocument?.getText();
 }
 
-function getGlobalCustomCssUri(globalPath: string | undefined): vscode.Uri | undefined {
+function isGithubThemeMode(value: unknown): value is GitHubThemeMode {
+  return githubThemeModes.includes(value as GitHubThemeMode);
+}
+
+function isGithubThemeName(value: unknown): value is GitHubThemeName {
+  return githubThemeNames.includes(value as GitHubThemeName);
+}
+
+export function getGithubMarkdownStyleSettings(
+  enabled: boolean
+): GitHubMarkdownStylePayload {
+  const settings = vscode.workspace.getConfiguration(
+    'markdown-preview-github-styles',
+    null
+  );
+  const colorModeSetting = settings.get<string>('colorTheme');
+  const lightThemeSetting = settings.get<string>('lightTheme');
+  const darkThemeSetting = settings.get<string>('darkTheme');
+
+  return {
+    enabled,
+    colorMode: isGithubThemeMode(colorModeSetting) ? colorModeSetting : 'auto',
+    lightTheme: isGithubThemeName(lightThemeSetting)
+      ? lightThemeSetting
+      : 'light',
+    darkTheme: isGithubThemeName(darkThemeSetting) ? darkThemeSetting : 'dark'
+  };
+}
+
+function getGithubMarkdownStyleExtension():
+  | ContributedMarkdownStyleExtension
+  | undefined {
+  const extension = vscode.extensions.getExtension<
+    ContributedMarkdownStyleExtension['packageJSON']
+  >('bierner.markdown-preview-github-styles');
+  if (!extension) {
+    return undefined;
+  }
+
+  return extension as unknown as ContributedMarkdownStyleExtension;
+}
+
+function getGithubMarkdownStyleUris(): vscode.Uri[] {
+  const extension = getGithubMarkdownStyleExtension();
+  if (!extension) {
+    return [];
+  }
+
+  const previewStyles =
+    extension.packageJSON?.contributes?.['markdown.previewStyles'];
+  if (!Array.isArray(previewStyles)) {
+    return [];
+  }
+
+  const uris: vscode.Uri[] = [];
+  for (const stylePath of previewStyles) {
+    if (typeof stylePath !== 'string' || !stylePath.trim()) {
+      continue;
+    }
+
+    const target = vscode.Uri.joinPath(extension.extensionUri, stylePath);
+    if (path.extname(target.fsPath).toLowerCase() !== '.css') {
+      continue;
+    }
+
+    uris.push(target);
+  }
+
+  return uris;
+}
+
+async function readGithubMarkdownPreviewStyles(
+  enabled: boolean
+): Promise<string[]> {
+  if (!enabled) {
+    return [];
+  }
+
+  const extension = getGithubMarkdownStyleExtension();
+  if (!extension) {
+    void vscode.window.showWarningMessage(
+      'GitHub Markdown styling is enabled, but bierner.markdown-preview-github-styles is not installed.'
+    );
+    return [];
+  }
+
+  const cssTexts: string[] = [];
+  let hadReadError = false;
+  for (const target of getGithubMarkdownStyleUris()) {
+    const openDocumentText = getOpenDocumentText(target);
+    if (openDocumentText !== undefined) {
+      cssTexts.push(openDocumentText);
+      continue;
+    }
+
+    try {
+      cssTexts.push(await fs.readFile(target.fsPath, 'utf8'));
+    } catch {
+      hadReadError = true;
+    }
+  }
+
+  if (hadReadError) {
+    void vscode.window.showWarningMessage(
+      'Could not read one or more CSS files from bierner.markdown-preview-github-styles.'
+    );
+  }
+
+  return cssTexts;
+}
+
+function getGlobalCustomCssUri(
+  globalPath: string | undefined
+): vscode.Uri | undefined {
   if (
     !globalPath ||
     !path.isAbsolute(globalPath) ||
@@ -151,9 +295,7 @@ function getGlobalCustomCssUri(globalPath: string | undefined): vscode.Uri | und
   return vscode.Uri.file(globalPath);
 }
 
-function getWorkspaceCustomCssUris(
-  config: CustomCssConfig
-): vscode.Uri[] {
+function getWorkspaceCustomCssUris(config: CustomCssConfig): vscode.Uri[] {
   if (!config.workspacePath || !config.workspaceScope) {
     return [];
   }
@@ -280,8 +422,19 @@ export async function resolveCustomCss(
 ): Promise<ResolvedCustomCss> {
   const config = getCustomCssConfig(documentUri);
   const cssTexts: string[] = [];
+  let githubStyleHash = '';
   let globalHash = '';
   let workspaceHash = '';
+
+  if (config.useMarkdownPreviewGithubStyling) {
+    const githubCssTexts = await readGithubMarkdownPreviewStyles(
+      config.useMarkdownPreviewGithubStyling
+    );
+    if (githubCssTexts.length > 0) {
+      cssTexts.push(...githubCssTexts);
+      githubStyleHash = githubCssTexts.map(hashCssText).join(':');
+    }
+  }
 
   if (config.globalPath) {
     const globalCss = await readGlobalCustomCss(config.globalPath);
@@ -303,6 +456,7 @@ export async function resolveCustomCss(
     cssTexts,
     key: JSON.stringify({
       config: buildCustomCssKey(config),
+      githubStyleHash,
       globalHash,
       workspaceHash
     })

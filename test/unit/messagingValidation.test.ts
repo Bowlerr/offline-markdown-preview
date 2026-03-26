@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 
-import { parseExtensionMessage, parseWebviewMessage } from '../../src/extension/messaging/validate';
+import {
+  parseExtensionMessage,
+  parseWebviewMessage
+} from '../../src/extension/messaging/validate';
 
 describe('messaging validation', () => {
   it('accepts valid webview messages', () => {
@@ -9,7 +12,26 @@ describe('messaging validation', () => {
   });
 
   it('rejects invalid webview message payloads', () => {
-    expect(() => parseWebviewMessage({ type: 'previewScroll', percent: 2 })).toThrow();
+    expect(() =>
+      parseWebviewMessage({ type: 'previewScroll', percent: 2 })
+    ).toThrow();
+  });
+
+  it('accepts HTML export snapshots with theme variables', () => {
+    const msg = parseWebviewMessage({
+      type: 'htmlExportSnapshot',
+      requestId: 1,
+      html: '<p>Rendered</p>',
+      themeVariables: {
+        '--omv-active-pre-bg': 'rgb(1, 2, 3)',
+        '--omv-mermaid-border': 'rgb(4, 5, 6)'
+      }
+    });
+    expect(msg).toMatchObject({
+      type: 'htmlExportSnapshot',
+      requestId: 1,
+      html: '<p>Rendered</p>'
+    });
   });
 
   it('accepts valid extension render message', () => {
@@ -26,7 +48,13 @@ describe('messaging validation', () => {
         enableMath: true,
         scrollSync: true,
         sanitizeHtml: true,
-        showFrontmatter: false
+        showFrontmatter: false,
+        githubMarkdownStyle: {
+          enabled: true,
+          colorMode: 'light',
+          lightTheme: 'light',
+          darkTheme: 'dark'
+        }
       }
     });
     expect(msg.type).toBe('render');
