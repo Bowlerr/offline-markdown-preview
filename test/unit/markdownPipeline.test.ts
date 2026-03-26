@@ -324,6 +324,39 @@ describe('markdownPipeline', () => {
     );
   });
 
+  it('keeps safe raw HTML srcset candidates when a remote primary src is blocked', () => {
+    const sourceUri = Uri.file('/workspace/docs/readme.md');
+    const webview = {
+      asWebviewUri(uri: { toString(): string }) {
+        return { toString: () => `vscode-webview://${uri.toString()}` };
+      }
+    };
+
+    const result = renderMarkdown(
+      '<img src="https://example.com/image.gif" srcset="images/local.gif 1x, https://example.com/image@2x.gif 2x" />',
+      {
+        sourceUri,
+        webview: webview as any,
+        allowHtml: true,
+        allowRemoteImages: false,
+        maxImageMB: 100
+      }
+    );
+
+    expect(result.html).toContain(
+      'data-remote-src="https://example.com/image.gif"'
+    );
+    expect(result.html).toContain(
+      'src="vscode-webview://file:///workspace/docs/images/local.gif"'
+    );
+    expect(result.html).toContain(
+      'srcset="vscode-webview://file:///workspace/docs/images/local.gif 1x"'
+    );
+    expect(result.html).toContain(
+      'data-export-srcset="file:///workspace/docs/images/local.gif 1x, https://example.com/image@2x.gif 2x"'
+    );
+  });
+
   it('rewrites raw HTML srcset when a remote image override exists', () => {
     const sourceUri = Uri.file('/workspace/docs/readme.md');
     const cachedUri = Uri.file('/workspace/.omv-cache/image.gif');

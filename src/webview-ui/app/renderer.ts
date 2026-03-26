@@ -213,6 +213,11 @@ export class PreviewRenderer {
     for (const img of remoteImgs) {
       const src = img.getAttribute('data-remote-src');
       if (!src) continue;
+      const hasPreviewSource = Boolean(
+        (img.getAttribute('src') ?? '').trim() ||
+          (img.getAttribute('srcset') ?? '').trim()
+      );
+      if (hasPreviewSource) continue;
       const block = document.createElement('div');
       block.className = 'omv-remote-image';
 

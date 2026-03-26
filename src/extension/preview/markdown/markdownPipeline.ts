@@ -229,10 +229,16 @@ function rewriteImageAttributes(
     setHtmlAttribute(attributes, 'data-image-blocked', 'remote-disabled');
     const srcset = getHtmlAttribute(attributes, 'srcset')?.value;
     if (srcset) {
-      setHtmlAttribute(attributes, 'data-export-srcset', srcset);
+      rewriteSrcsetAttribute(attributes, options);
+      const previewSrcset = getHtmlAttribute(attributes, 'srcset')?.value;
+      const previewSrc = previewSrcset
+        ? parseHtmlSrcset(previewSrcset)[0]?.url
+        : undefined;
+      setHtmlAttribute(attributes, 'src', previewSrc ?? '');
+    } else {
+      setHtmlAttribute(attributes, 'srcset', '');
+      setHtmlAttribute(attributes, 'src', '');
     }
-    setHtmlAttribute(attributes, 'src', '');
-    setHtmlAttribute(attributes, 'srcset', '');
   }
 
   setHtmlAttribute(attributes, 'loading', 'lazy');
