@@ -638,7 +638,7 @@ export class PreviewController implements vscode.Disposable {
     }
 
     if (picked.clear) {
-      await cfg.update(picked.settingKey, '', picked.target);
+      await cfg.update(picked.settingKey, undefined, picked.target);
       void vscode.window.showInformationMessage(
         picked.settingKey === 'preview.globalCustomCssPath'
           ? 'Cleared global custom CSS.'

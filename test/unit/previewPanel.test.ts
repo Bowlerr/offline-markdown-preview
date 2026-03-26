@@ -269,6 +269,28 @@ describe('PreviewController custom CSS', () => {
     );
   });
 
+  it('clears folder custom CSS by removing the override', async () => {
+    const { module, update, vscodeMock } = await loadPreviewPanelTestModule({
+      workspaceFolderPaths: ['/workspace-root/workspace-a', '/workspace-root/workspace-b'],
+      workspaceFilePath: '/workspace-root/demo.code-workspace',
+      activeEditorPath: '/workspace-root/workspace-a/doc.md',
+      quickPickLabel: 'Clear Folder Custom CSS'
+    });
+
+    const controller = new module.PreviewController({
+      extensionUri: Uri.file('/extension'),
+      globalStorageUri: Uri.file('/global-storage')
+    } as any);
+
+    await controller.configureCustomCss();
+
+    expect(update).toHaveBeenCalledWith(
+      'preview.customCssPath',
+      undefined,
+      vscodeMock.ConfigurationTarget.WorkspaceFolder
+    );
+  });
+
   it('refreshes custom CSS immediately when the stylesheet is closed', async () => {
     const cssUri = Uri.file('/workspace-a/styles/preview.css');
     const { closeTextDocument, module, securityMock } =
