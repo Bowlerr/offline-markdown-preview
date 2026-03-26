@@ -267,11 +267,24 @@ function rewriteRawHtmlImages(
     }
 
     const src = getHtmlAttribute(parsed.attributes, 'src')?.value;
-    if (!src) {
+    const srcset = getHtmlAttribute(parsed.attributes, 'srcset')?.value;
+    if (!src && !srcset) {
       return serializeHtmlImgTag(parsed.attributes, parsed.selfClosing);
     }
 
-    rewriteImageAttributes(parsed.attributes, src, options);
+    if (src) {
+      rewriteImageAttributes(parsed.attributes, src, options);
+    } else {
+      rewriteSrcsetAttribute(parsed.attributes, options);
+      setHtmlAttribute(parsed.attributes, 'loading', 'lazy');
+      setHtmlAttribute(parsed.attributes, 'decoding', 'async');
+      setHtmlAttribute(parsed.attributes, 'referrerpolicy', 'no-referrer');
+      setHtmlAttribute(
+        parsed.attributes,
+        'data-max-mb',
+        String(options.maxImageMB)
+      );
+    }
     return serializeHtmlImgTag(parsed.attributes, parsed.selfClosing);
   });
 }

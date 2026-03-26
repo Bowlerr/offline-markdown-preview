@@ -288,8 +288,7 @@ export function parseHtmlSrcset(value: string): HtmlSrcsetCandidate[] {
 
     while (
       index < value.length &&
-      !/\s/.test(value[index]) &&
-      value[index] !== ','
+      !/\s/.test(value[index])
     ) {
       index += 1;
     }
@@ -302,12 +301,6 @@ export function parseHtmlSrcset(value: string): HtmlSrcsetCandidate[] {
       continue;
     }
 
-    if (!isDataUrl && value[index] === ',') {
-      candidates.push({ url });
-      index += 1;
-      continue;
-    }
-
     while (index < value.length && value[index] !== ',') {
       index += 1;
     }
@@ -317,7 +310,6 @@ export function parseHtmlSrcset(value: string): HtmlSrcsetCandidate[] {
       .trim();
 
     if (
-      isDataUrl &&
       url.endsWith(',') &&
       descriptor &&
       !isValidSrcsetDescriptorSequence(descriptor)

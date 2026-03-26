@@ -42,4 +42,20 @@ describe('htmlImageTags', () => {
       }
     ]);
   });
+
+  it('preserves commas that are part of non-data srcset URLs', () => {
+    const srcset =
+      'images/scroll,final.gif 1x, https://example.com/scroll.gif?sig=a,b 2x';
+
+    expect(parseHtmlSrcset(srcset)).toEqual([
+      {
+        url: 'images/scroll,final.gif',
+        descriptor: '1x'
+      },
+      {
+        url: 'https://example.com/scroll.gif?sig=a,b',
+        descriptor: '2x'
+      }
+    ]);
+  });
 });

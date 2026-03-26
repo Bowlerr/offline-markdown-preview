@@ -217,13 +217,14 @@ export class PreviewRenderer {
         (img.getAttribute('src') ?? '').trim() ||
           (img.getAttribute('srcset') ?? '').trim()
       );
-      if (hasPreviewSource) continue;
       const block = document.createElement('div');
       block.className = 'omv-remote-image';
 
       const text = document.createElement('div');
       text.className = 'omv-remote-image-text';
-      text.textContent = 'Remote image blocked by settings.';
+      text.textContent = hasPreviewSource
+        ? 'Some remote image sources are blocked by settings.'
+        : 'Remote image blocked by settings.';
 
       const btn = document.createElement('button');
       btn.type = 'button';
@@ -232,8 +233,10 @@ export class PreviewRenderer {
       btn.textContent = 'Download Image';
 
       block.append(text, btn);
-      img.hidden = true;
-      img.setAttribute('aria-hidden', 'true');
+      if (!hasPreviewSource) {
+        img.hidden = true;
+        img.setAttribute('aria-hidden', 'true');
+      }
       img.insertAdjacentElement('afterend', block);
     }
   }
