@@ -266,7 +266,6 @@ function rewriteImageAttributes(
       if (bytes > options.maxImageMB * 1024 * 1024) {
         blockedBySizeLimit = true;
         setHtmlAttribute(attributes, 'src', '');
-        setHtmlAttribute(attributes, OMV_MAX_MB_ATTR, String(options.maxImageMB));
       } else {
         setHtmlAttribute(
           attributes,

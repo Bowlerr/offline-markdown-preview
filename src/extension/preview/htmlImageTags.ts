@@ -75,12 +75,14 @@ export function parseHtmlImgTag(tag: string): {
     return null;
   }
 
-  const body = tag.replace(/^<img\b/i, '').replace(/\s*\/?>$/, '');
+  const body = tag.replace(/^<img\b/i, '').replace(/\s*>$/, '');
   const attributes: HtmlAttribute[] = [];
   const attrPattern =
     /([^\s"'=<>`/]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+)))?/g;
+  let lastMatchEnd = 0;
 
   for (const match of body.matchAll(attrPattern)) {
+    lastMatchEnd = (match.index ?? 0) + match[0].length;
     const name = match[1];
     const quote = match[2] !== undefined ? '"' : match[3] !== undefined ? "'" : undefined;
     const originalValue = match[2] ?? match[3] ?? match[4];
@@ -95,9 +97,10 @@ export function parseHtmlImgTag(tag: string): {
     );
   }
 
+  const trailing = body.slice(lastMatchEnd).trim();
   return {
     attributes,
-    selfClosing: /\/\s*>$/.test(tag)
+    selfClosing: trailing === '/'
   };
 }
 
@@ -494,6 +497,46 @@ function getLiteralContentTagName(tag: string): string | undefined {
   }
 }
 
+function findTemplateTagClose(html: string, fromIndex: number): number {
+  let depth = 1;
+
+  for (let index = fromIndex; index < html.length; index += 1) {
+    const nextTagStart = html.indexOf('<', index);
+    if (nextTagStart < 0) {
+      return -1;
+    }
+    index = nextTagStart;
+
+    if (html.startsWith('<!--', index)) {
+      const commentEnd = html.indexOf('-->', index + 4);
+      if (commentEnd < 0) {
+        return -1;
+      }
+      index = commentEnd + 2;
+      continue;
+    }
+
+    const nextTagEnd = findTagEnd(html, index + 1);
+    if (nextTagEnd < 0) {
+      return -1;
+    }
+
+    const nextTag = html.slice(index, nextTagEnd + 1);
+    if (/^<template\b/i.test(nextTag) && !/\/\s*>$/.test(nextTag)) {
+      depth += 1;
+    } else if (/^<\/template\s*>/i.test(nextTag)) {
+      depth -= 1;
+      if (depth === 0) {
+        return nextTagEnd;
+      }
+    }
+
+    index = nextTagEnd;
+  }
+
+  return -1;
+}
+
 function findHtmlImgTagStart(html: string, fromIndex: number): number {
   let insideTag = false;
   let quote: '"' | "'" | undefined;
@@ -541,6 +584,15 @@ function findHtmlImgTagStart(html: string, fromIndex: number): number {
     const tag = html.slice(index, tagEnd + 1);
     const literalTagName = getLiteralContentTagName(tag);
     if (literalTagName) {
+      if (literalTagName.toLowerCase() === 'template') {
+        const closeTagEnd = findTemplateTagClose(html, tagEnd + 1);
+        if (closeTagEnd < 0) {
+          return -1;
+        }
+        index = closeTagEnd;
+        continue;
+      }
+
       const closePattern = new RegExp(`</${literalTagName}\\s*>`, 'i');
       const closeIndex = html.slice(tagEnd + 1).search(closePattern);
       if (closeIndex < 0) {

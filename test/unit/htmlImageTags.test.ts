@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   mapHtmlImgTags,
+  parseHtmlImgTag,
   parseHtmlSrcset
 } from '../../src/extension/preview/htmlImageTags';
 
@@ -34,6 +35,42 @@ describe('htmlImageTags', () => {
     );
     expect(result).toContain(
       '<noscript><img src="images/noscript.png" alt="noscript" /></noscript>'
+    );
+    expect(result).toContain(
+      '<p>[<img src="images/rendered.png" alt="rendered" />]</p>'
+    );
+  });
+
+  it('keeps a trailing slash in unquoted attribute values', () => {
+    const parsed = parseHtmlImgTag('<img src=demo.gif/>');
+
+    expect(parsed).toEqual({
+      attributes: [
+        {
+          name: 'src',
+          value: 'demo.gif/',
+          originalValue: 'demo.gif/',
+          quote: undefined,
+          changed: false
+        }
+      ],
+      selfClosing: false
+    });
+  });
+
+  it('skips img tags inside nested templates and template comments', () => {
+    const html = [
+      '<template>',
+      '  <!-- stray </template> marker inside comment -->',
+      '  <template><img src="images/nested.png" alt="nested" /></template>',
+      '</template>',
+      '<p><img src="images/rendered.png" alt="rendered" /></p>'
+    ].join('');
+
+    const result = mapHtmlImgTags(html, (tag) => `[${tag}]`);
+
+    expect(result).toContain(
+      '<template>  <!-- stray </template> marker inside comment -->  <template><img src="images/nested.png" alt="nested" /></template></template>'
     );
     expect(result).toContain(
       '<p>[<img src="images/rendered.png" alt="rendered" />]</p>'
