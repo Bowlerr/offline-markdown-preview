@@ -2,6 +2,26 @@ import * as path from 'node:path';
 
 const posixPath = path.posix;
 
+function normalizeSlashes(value: string): string {
+  return value.replace(/\\/g, '/');
+}
+
+function isWindowsDrivePath(value: string): boolean {
+  return /^[A-Za-z]:\//.test(normalizeSlashes(value));
+}
+
+function toUriPath(fsPath: string): string {
+  const normalized = normalizeSlashes(fsPath);
+  if (isWindowsDrivePath(normalized)) {
+    return `/${normalized}`;
+  }
+  return normalized;
+}
+
+function toFsPath(uriPath: string): string {
+  return /^\/[A-Za-z]:\//.test(uriPath) ? uriPath.slice(1) : uriPath;
+}
+
 export class Uri {
   constructor(
     public readonly scheme: string,
@@ -13,18 +33,19 @@ export class Uri {
   ) {}
 
   static file(fsPath: string): Uri {
-    const normalized = fsPath.replace(/\\/g, '/');
-    return new Uri('file', fsPath, normalized, `file://${normalized}`);
+    const normalizedFsPath = normalizeSlashes(fsPath);
+    const uriPath = toUriPath(normalizedFsPath);
+    return new Uri('file', normalizedFsPath, uriPath, `file://${uriPath}`);
   }
 
   static parse(input: string): Uri {
     if (input.startsWith('file://')) {
       const match = /^file:\/\/([^?#]*)(?:\?([^#]*))?(?:#(.*))?$/i.exec(input);
-      const normalizedPath = (match?.[1] ?? '').replace(/\\/g, '/');
-      const fsPath = normalizedPath;
+      const uriPath = normalizeSlashes(match?.[1] ?? '');
+      const fsPath = toFsPath(uriPath);
       const query = match?.[2] ?? '';
       const fragment = match?.[3] ?? '';
-      return new Uri('file', fsPath, normalizedPath, input, query, fragment);
+      return new Uri('file', fsPath, uriPath, input, query, fragment);
     }
     if (/^https?:\/\//i.test(input)) {
       return new Uri(input.split(':')[0], '', '', input);
@@ -33,11 +54,13 @@ export class Uri {
   }
 
   static joinPath(base: Uri, ...segments: string[]): Uri {
-    const nextPath = posixPath.resolve(
-      base.fsPath || base.path || '/',
-      ...segments
+    const nextUriPath = posixPath.resolve(base.path || '/', ...segments);
+    return new Uri(
+      'file',
+      toFsPath(nextUriPath),
+      nextUriPath,
+      `file://${nextUriPath}`
     );
-    return Uri.file(nextPath);
   }
 
   with(update: { path?: string; query?: string; fragment?: string }): Uri {
@@ -53,7 +76,7 @@ export class Uri {
       `${nextFragment ? `#${nextFragment}` : ''}`;
     return new Uri(
       this.scheme,
-      nextPath,
+      this.scheme === 'file' ? toFsPath(nextPath) : nextPath,
       nextPath,
       nextRaw,
       nextQuery,
@@ -69,7 +92,7 @@ export class Uri {
 export function createVscodeMock(workspaceRoot?: string) {
   const workspaceFolderPaths = workspaceRoot ? [workspaceRoot] : [];
   const workspaceFolders = workspaceFolderPaths.map((rootPath) => ({
-    name: posixPath.basename(rootPath),
+    name: path.basename(normalizeSlashes(rootPath)),
     uri: Uri.file(rootPath)
   }));
 
@@ -86,11 +109,8 @@ export function createVscodeMock(workspaceRoot?: string) {
       textDocuments: [],
       getWorkspaceFolder(uri: Uri) {
         return workspaceFolders.find((folder) => {
-          const rel = posixPath.relative(folder.uri.fsPath, uri.fsPath);
-          return (
-            rel === '' ||
-            (!rel.startsWith('..') && !posixPath.isAbsolute(rel))
-          );
+          const rel = path.relative(folder.uri.fsPath, uri.fsPath);
+          return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel));
         });
       }
     }
