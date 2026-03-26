@@ -84,8 +84,19 @@ These VS Code settings control rendering, safety, and performance:
 - `offlineMarkdownViewer.preview.maxImageMB` (default: `8`): maximum local image size loaded into preview.
 - `offlineMarkdownViewer.export.embedImages` (default: `false`): embed local images as data URIs for HTML export (privacy warning shown).
 - `offlineMarkdownViewer.performance.debounceMs` (default: `120`): debounce delay for live preview updates.
-- `offlineMarkdownViewer.preview.customCssPath` (default: `""`): workspace-local CSS file appended to preview output.
+- `offlineMarkdownViewer.preview.globalCustomCssPath` (default: `""`): absolute path to a user-level `.css` file appended to every preview.
+- `offlineMarkdownViewer.preview.customCssPath` (default: `""`): workspace-relative `.css` file appended after the global stylesheet. Set this in workspace or folder settings to override the global baseline for a repo.
 - `offlineMarkdownViewer.preview.showFrontmatter` (default: `false`): show parsed YAML frontmatter above the rendered document.
+
+## Custom CSS
+
+Use `offlineMarkdownViewer.preview.globalCustomCssPath` in user settings to apply a stylesheet everywhere, then optionally layer `offlineMarkdownViewer.preview.customCssPath` in a workspace for repo-specific tweaks.
+
+If both are set, the global stylesheet is injected first and the workspace stylesheet is injected second, so workspace rules win on conflicts.
+
+You can also run **Offline Markdown Preview: Set Custom CSS** from the Command Palette to pick a global or workspace stylesheet without editing settings JSON manually.
+
+For a full setup guide, example CSS, and GitHub-style walkthrough, see [docs/custom-css/README.md](docs/custom-css/README.md).
 
 ## Commands
 
@@ -95,6 +106,7 @@ These VS Code settings control rendering, safety, and performance:
 | `Offline Markdown Preview: Open Preview To Side`          | Open the preview beside the active editor        |
 | `Offline Markdown Preview: Export HTML`                   | Export the current preview/document as HTML      |
 | `Offline Markdown Preview: Export PDF`                    | Export the current preview/document as PDF       |
+| `Offline Markdown Preview: Set Custom CSS`                | Pick or clear a global/workspace custom CSS file |
 | `Offline Markdown Preview: Show Remote Image Cache Usage` | Show current remote-image cache size/file counts |
 | `Offline Markdown Preview: Clear Remote Image Cache`      | Delete cached remote images used by preview      |
 | `Offline Markdown Preview: Toggle Scroll Sync`            | Enable/disable editor <-> preview scroll sync    |

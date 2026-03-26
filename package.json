@@ -54,6 +54,7 @@
     "onCommand:offlineMarkdownViewer.openPreviewToSide",
     "onCommand:offlineMarkdownViewer.exportHtml",
     "onCommand:offlineMarkdownViewer.exportPdf",
+    "onCommand:offlineMarkdownViewer.configureCustomCss",
     "onCommand:offlineMarkdownViewer.showRemoteImageCacheUsage",
     "onCommand:offlineMarkdownViewer.clearRemoteImageCache",
     "onLanguage:markdown"
@@ -79,6 +80,11 @@
       {
         "command": "offlineMarkdownViewer.exportPdf",
         "title": "Export PDF",
+        "category": "Offline Markdown Preview"
+      },
+      {
+        "command": "offlineMarkdownViewer.configureCustomCss",
+        "title": "Set Custom CSS",
         "category": "Offline Markdown Preview"
       },
       {
@@ -173,10 +179,17 @@
           "maximum": 1000,
           "description": "Debounce delay for live preview updates."
         },
+        "offlineMarkdownViewer.preview.globalCustomCssPath": {
+          "type": "string",
+          "scope": "machine",
+          "default": "",
+          "description": "Absolute path to a user-level .css file appended to every preview."
+        },
         "offlineMarkdownViewer.preview.customCssPath": {
           "type": "string",
+          "scope": "resource",
           "default": "",
-          "description": "Workspace-local CSS file path to append to the preview (workspace settings only)."
+          "description": "Workspace-relative CSS file path to append to the preview (workspace/folder settings only)."
         },
         "offlineMarkdownViewer.preview.showFrontmatter": {
           "type": "boolean",

@@ -1,0 +1,89 @@
+/*
+  Repo-local preview theme for testing custom CSS support.
+  This is intentionally visible so it's easy to confirm the setting is active.
+*/
+
+:root {
+  --omv-test-rule: color-mix(
+    in srgb,
+    var(--vscode-textLink-foreground, #0969da) 24%,
+    transparent
+  );
+  --omv-test-panel: color-mix(
+    in srgb,
+    var(--vscode-editor-background) 94%,
+    var(--vscode-editor-foreground) 6%
+  );
+  --omv-test-code: color-mix(
+    in srgb,
+    var(--vscode-textCodeBlock-background, var(--vscode-editor-background)) 88%,
+    var(--vscode-editor-foreground) 12%
+  );
+}
+
+.omv-content {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 2.25rem 3rem 4rem;
+  font-family:
+    -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+  line-height: 1.65;
+}
+
+.omv-content > :first-child {
+  margin-top: 0;
+}
+
+.omv-content h1,
+.omv-content h2,
+.omv-content h3 {
+  letter-spacing: -0.01em;
+}
+
+.omv-content h1,
+.omv-content h2 {
+  border-bottom: 1px solid var(--omv-test-rule);
+  padding-bottom: 0.3em;
+}
+
+.omv-content blockquote {
+  margin-left: 0;
+  padding: 0.2rem 1rem;
+  border-left: 4px solid var(--vscode-textLink-foreground, #0969da);
+  background: var(--omv-test-panel);
+  border-radius: 0 10px 10px 0;
+}
+
+.omv-content :not(pre) > code {
+  background: var(--omv-test-code);
+  border: 1px solid var(--omv-test-rule);
+  border-radius: 6px;
+  padding: 0.15em 0.4em;
+}
+
+.omv-content pre {
+  border: 1px solid var(--omv-test-rule);
+  border-radius: 12px;
+  box-shadow: 0 10px 30px
+    color-mix(in srgb, var(--vscode-editor-foreground) 7%, transparent);
+}
+
+.omv-content table {
+  border-collapse: collapse;
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.omv-content th,
+.omv-content td {
+  border: 1px solid var(--omv-test-rule);
+  padding: 0.55rem 0.8rem;
+}
+
+.omv-content th {
+  background: var(--omv-test-panel);
+}
+
+.omv-content a {
+  text-underline-offset: 0.16em;
+}
