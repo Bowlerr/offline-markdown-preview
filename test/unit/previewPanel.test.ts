@@ -641,11 +641,11 @@ describe('PreviewController custom CSS', () => {
     } as any);
 
     const html = (controller as any).rewriteLocalImageSourcesForExport(
-      '<p><img src="vscode-webview://file:///workspace-a/images/demo.gif" alt="demo" data-local-src="file:///workspace-a/images/demo.gif" /></p>'
+      '<p><img src="vscode-webview://file:///workspace-a/images/demo.gif" alt="demo" data-omv-local-src="file:///workspace-a/images/demo.gif" /></p>'
     );
 
     expect(html).toContain(
-      '<img src="file:///workspace-a/images/demo.gif" alt="demo" data-local-src="file:///workspace-a/images/demo.gif" />'
+      '<img src="file:///workspace-a/images/demo.gif" alt="demo" data-omv-local-src="file:///workspace-a/images/demo.gif" />'
     );
   });
 
@@ -660,11 +660,11 @@ describe('PreviewController custom CSS', () => {
     } as any);
 
     const html = (controller as any).rewriteLocalImageSourcesForExport(
-      '<p><img data-local-src="file:///workspace-a/images/demo.gif" alt="a > b" src="vscode-webview://file:///workspace-a/images/demo.gif" /></p>'
+      '<p><img data-omv-local-src="file:///workspace-a/images/demo.gif" alt="a > b" src="vscode-webview://file:///workspace-a/images/demo.gif" /></p>'
     );
 
     expect(html).toContain(
-      '<img data-local-src="file:///workspace-a/images/demo.gif" alt="a > b" src="file:///workspace-a/images/demo.gif" />'
+      '<img data-omv-local-src="file:///workspace-a/images/demo.gif" alt="a > b" src="file:///workspace-a/images/demo.gif" />'
     );
   });
 
@@ -679,11 +679,11 @@ describe('PreviewController custom CSS', () => {
     } as any);
 
     const html = (controller as any).rewriteLocalImageSourcesForExport(
-      '<p><img data-local-src="file:///workspace-a/images/demo.gif" src="" data-export-srcset="file:///workspace-a/images/demo.gif 1x, file:///workspace-a/images/demo@2x.gif 2x" srcset="" /></p>'
+      '<p><img data-omv-local-src="file:///workspace-a/images/demo.gif" src="" data-omv-export-srcset="file:///workspace-a/images/demo.gif 1x, file:///workspace-a/images/demo@2x.gif 2x" srcset="" /></p>'
     );
 
     expect(html).toContain(
-      '<img data-local-src="file:///workspace-a/images/demo.gif" src="file:///workspace-a/images/demo.gif" data-export-srcset="file:///workspace-a/images/demo.gif 1x, file:///workspace-a/images/demo@2x.gif 2x" srcset="file:///workspace-a/images/demo.gif 1x, file:///workspace-a/images/demo@2x.gif 2x" />'
+      '<img data-omv-local-src="file:///workspace-a/images/demo.gif" src="file:///workspace-a/images/demo.gif" data-omv-export-srcset="file:///workspace-a/images/demo.gif 1x, file:///workspace-a/images/demo@2x.gif 2x" srcset="file:///workspace-a/images/demo.gif 1x, file:///workspace-a/images/demo@2x.gif 2x" />'
     );
   });
 
@@ -698,11 +698,30 @@ describe('PreviewController custom CSS', () => {
     } as any);
 
     const html = (controller as any).rewriteLocalImageSourcesForExport(
-      '<p><img data-remote-src="https://example.com/demo.gif" src="" data-export-srcset="https://example.com/demo.gif 1x, https://example.com/demo@2x.gif 2x" srcset="" /></p>'
+      '<p><img data-omv-remote-src="https://example.com/demo.gif" src="" data-omv-export-srcset="https://example.com/demo.gif 1x, https://example.com/demo@2x.gif 2x" srcset="" /></p>'
     );
 
     expect(html).toContain(
-      '<img data-remote-src="https://example.com/demo.gif" src="https://example.com/demo.gif" data-export-srcset="https://example.com/demo.gif 1x, https://example.com/demo@2x.gif 2x" srcset="https://example.com/demo.gif 1x, https://example.com/demo@2x.gif 2x" />'
+      '<img data-omv-remote-src="https://example.com/demo.gif" src="https://example.com/demo.gif" data-omv-export-srcset="https://example.com/demo.gif 1x, https://example.com/demo@2x.gif 2x" srcset="https://example.com/demo.gif 1x, https://example.com/demo@2x.gif 2x" />'
+    );
+  });
+
+  it('ignores authored generic data-remote-src during export rewriting', async () => {
+    const { module } = await loadPreviewPanelTestModule({
+      workspaceFolderPaths: ['/workspace-a']
+    });
+
+    const controller = new module.PreviewController({
+      extensionUri: Uri.file('/extension'),
+      globalStorageUri: Uri.file('/global-storage')
+    } as any);
+
+    const html = (controller as any).rewriteLocalImageSourcesForExport(
+      '<p><img src="https://cdn.example.com/demo.gif" data-remote-src="hero" alt="demo" /></p>'
+    );
+
+    expect(html).toContain(
+      '<img src="https://cdn.example.com/demo.gif" data-remote-src="hero" alt="demo" />'
     );
   });
 

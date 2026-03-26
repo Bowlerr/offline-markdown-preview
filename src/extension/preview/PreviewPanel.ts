@@ -13,6 +13,11 @@ import type {
 } from '../messaging/protocol';
 import { parseWebviewMessage } from '../messaging/validate';
 import {
+  OMV_EXPORT_SRCSET_ATTR,
+  OMV_LOCAL_SRC_ATTR,
+  OMV_REMOTE_SRC_ATTR
+} from '../../previewImageMetadata';
+import {
   getHtmlAttribute,
   mapHtmlImgTags,
   mapHtmlImgTagsAsync,
@@ -1765,7 +1770,7 @@ export class PreviewController implements vscode.Disposable {
         return tag;
       }
 
-      const localSrc = getHtmlAttribute(parsed.attributes, 'data-local-src')
+      const localSrc = getHtmlAttribute(parsed.attributes, OMV_LOCAL_SRC_ATTR)
         ?.value;
       const exportSrcset = getHtmlAttribute(parsed.attributes, 'srcset')?.value;
       let changed = false;
@@ -1828,13 +1833,13 @@ export class PreviewController implements vscode.Disposable {
         return tag;
       }
 
-      const localSrc = getHtmlAttribute(parsed.attributes, 'data-local-src')
+      const localSrc = getHtmlAttribute(parsed.attributes, OMV_LOCAL_SRC_ATTR)
         ?.value;
-      const remoteSrc = getHtmlAttribute(parsed.attributes, 'data-remote-src')
+      const remoteSrc = getHtmlAttribute(parsed.attributes, OMV_REMOTE_SRC_ATTR)
         ?.value;
       const exportSrcset = getHtmlAttribute(
         parsed.attributes,
-        'data-export-srcset'
+        OMV_EXPORT_SRCSET_ATTR
       )?.value;
       if (!localSrc && !remoteSrc && !exportSrcset) {
         return tag;

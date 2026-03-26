@@ -7,6 +7,7 @@ import type {
   RenderPayload
 } from '../extension/messaging/protocol';
 import { parseExtensionMessage } from '../extension/messaging/validate';
+import { OMV_REMOTE_SRC_ATTR } from '../previewImageMetadata';
 import { PreviewRenderer } from './app/renderer';
 import { restoreRemoteImageExportVisibility } from './app/remoteImageAttrs';
 import { PreviewSearch } from './app/search';
@@ -453,7 +454,7 @@ function buildRenderedHtmlExportSnapshot(): {
   }
 
   for (const img of clone.querySelectorAll<HTMLImageElement>(
-    'img[data-remote-src]'
+    `img[${OMV_REMOTE_SRC_ATTR}]`
   )) {
     restoreRemoteImageExportVisibility(img);
   }

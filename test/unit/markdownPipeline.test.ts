@@ -45,7 +45,7 @@ describe('markdownPipeline', () => {
     expect(result.toc[0]).toMatchObject({ id: 'title', text: 'Title' });
     expect(result.html).toContain('omv-mermaid');
     expect(result.html).toContain('data-math=');
-    expect(result.html).toContain('data-local-src="file:///workspace/docs/pic.png"');
+    expect(result.html).toContain('data-omv-local-src="file:///workspace/docs/pic.png"');
     expect(result.html).toContain(
       'src="vscode-webview://file:///workspace/docs/pic.png"'
     );
@@ -138,8 +138,8 @@ describe('markdownPipeline', () => {
       allowRemoteImages: false,
       maxImageMB: 8
     });
-    expect(blocked.html).toContain('data-remote-src="https://example.com/image.png"');
-    expect(blocked.html).toContain('data-image-blocked="remote-disabled"');
+    expect(blocked.html).toContain('data-omv-remote-src="https://example.com/image.png"');
+    expect(blocked.html).toContain('data-omv-image-blocked="remote-disabled"');
 
     const allowed = renderMarkdown(input, {
       sourceUri,
@@ -148,7 +148,7 @@ describe('markdownPipeline', () => {
       allowRemoteImages: true,
       maxImageMB: 8
     });
-    expect(allowed.html).not.toContain('data-remote-src=');
+    expect(allowed.html).not.toContain('data-omv-remote-src=');
     expect(allowed.html).toContain('src="https://example.com/image.png"');
   });
 
@@ -180,7 +180,7 @@ describe('markdownPipeline', () => {
       'src="vscode-webview://file:///workspace/docs/images/scroll.gif"'
     );
     expect(result.html).toContain(
-      'data-local-src="file:///workspace/docs/images/scroll.gif"'
+      'data-omv-local-src="file:///workspace/docs/images/scroll.gif"'
     );
     expect(result.html).toContain('loading="lazy"');
   });
@@ -208,7 +208,7 @@ describe('markdownPipeline', () => {
       'srcset="vscode-webview://file:///workspace/docs/images/scroll.gif 1x, vscode-webview://file:///workspace/docs/images/scroll@2x.gif 2x"'
     );
     expect(result.html).toContain(
-      'data-export-srcset="file:///workspace/docs/images/scroll.gif 1x, file:///workspace/docs/images/scroll@2x.gif 2x"'
+      'data-omv-export-srcset="file:///workspace/docs/images/scroll.gif 1x, file:///workspace/docs/images/scroll@2x.gif 2x"'
     );
     expect(result.html).toContain('loading="lazy"');
   });
@@ -234,7 +234,7 @@ describe('markdownPipeline', () => {
     );
     expect(result.html).toContain('alt="a > b"');
     expect(result.html).toContain(
-      'data-local-src="file:///workspace/docs/images/scroll.gif"'
+      'data-omv-local-src="file:///workspace/docs/images/scroll.gif"'
     );
   });
 
@@ -261,7 +261,34 @@ describe('markdownPipeline', () => {
       'src="vscode-webview://file:///workspace/docs/images/scroll.gif"'
     );
     expect(result.html).toContain(
-      'data-local-src="file:///workspace/docs/images/scroll.gif"'
+      'data-omv-local-src="file:///workspace/docs/images/scroll.gif"'
+    );
+  });
+
+  it('preserves authored loading hints on raw HTML img tags', () => {
+    const sourceUri = Uri.file('/workspace/docs/readme.md');
+    const webview = {
+      asWebviewUri(uri: { toString(): string }) {
+        return { toString: () => `vscode-webview://${uri.toString()}` };
+      }
+    };
+
+    const result = renderMarkdown(
+      '<img src="images/scroll.gif" loading="eager" decoding="sync" referrerpolicy="origin" alt="demo" />',
+      {
+        sourceUri,
+        webview: webview as any,
+        allowHtml: true,
+        allowRemoteImages: false,
+        maxImageMB: 100
+      }
+    );
+
+    expect(result.html).toContain('loading="eager"');
+    expect(result.html).toContain('decoding="sync"');
+    expect(result.html).toContain('referrerpolicy="origin"');
+    expect(result.html).toContain(
+      'data-omv-local-src="file:///workspace/docs/images/scroll.gif"'
     );
   });
 
@@ -287,13 +314,13 @@ describe('markdownPipeline', () => {
     );
 
     expect(result.html).toContain(
-      'data-local-src="file:///workspace/docs/images/scroll.gif"'
+      'data-omv-local-src="file:///workspace/docs/images/scroll.gif"'
     );
-    expect(result.html).toContain('data-image-blocked="size-limit"');
+    expect(result.html).toContain('data-omv-image-blocked="size-limit"');
     expect(result.html).toContain('src=""');
     expect(result.html).toContain('srcset=""');
     expect(result.html).toContain(
-      'data-export-srcset="file:///workspace/docs/images/scroll.gif 1x, file:///workspace/docs/images/scroll@2x.gif 2x"'
+      'data-omv-export-srcset="file:///workspace/docs/images/scroll.gif 1x, file:///workspace/docs/images/scroll@2x.gif 2x"'
     );
   });
 
@@ -320,7 +347,7 @@ describe('markdownPipeline', () => {
       'srcset="vscode-webview://file:///workspace/docs/images/scroll.gif 1x, vscode-webview://file:///workspace/docs/images/scroll@2x.gif 2x"'
     );
     expect(result.html).toContain(
-      'data-export-srcset="file:///workspace/docs/images/scroll.gif 1x, file:///workspace/docs/images/scroll@2x.gif 2x"'
+      'data-omv-export-srcset="file:///workspace/docs/images/scroll.gif 1x, file:///workspace/docs/images/scroll@2x.gif 2x"'
     );
   });
 
@@ -350,12 +377,12 @@ describe('markdownPipeline', () => {
     );
 
     expect(result.html).toContain(
-      'data-local-src="file:///workspace/docs/images/large.gif"'
+      'data-omv-local-src="file:///workspace/docs/images/large.gif"'
     );
     expect(result.html).toContain(
       'srcset="vscode-webview://file:///workspace/docs/images/small.gif 1x"'
     );
-    expect(result.html).not.toContain('data-image-blocked="size-limit"');
+    expect(result.html).not.toContain('data-omv-image-blocked="size-limit"');
     expect(result.html).not.toContain(
       'alt="demo (blocked: exceeds preview.maxImageMB)"'
     );
@@ -407,12 +434,12 @@ describe('markdownPipeline', () => {
     );
 
     expect(result.html).toContain(
-      'data-remote-src="https://example.com/image.gif"'
+      'data-omv-remote-src="https://example.com/image.gif"'
     );
     expect(result.html).toContain('src=""');
     expect(result.html).toContain('srcset=""');
     expect(result.html).toContain(
-      'data-export-srcset="https://example.com/image.gif 1x, https://example.com/image@2x.gif 2x"'
+      'data-omv-export-srcset="https://example.com/image.gif 1x, https://example.com/image@2x.gif 2x"'
     );
   });
 
@@ -436,13 +463,13 @@ describe('markdownPipeline', () => {
     );
 
     expect(result.html).toContain(
-      'data-remote-src="https://example.com/image.gif"'
+      'data-omv-remote-src="https://example.com/image.gif"'
     );
-    expect(result.html).toContain('data-image-blocked="remote-disabled"');
+    expect(result.html).toContain('data-omv-image-blocked="remote-disabled"');
     expect(result.html).toContain('src=""');
     expect(result.html).toContain('srcset=""');
     expect(result.html).toContain(
-      'data-export-srcset="https://example.com/image.gif 1x, https://example.com/image@2x.gif 2x"'
+      'data-omv-export-srcset="https://example.com/image.gif 1x, https://example.com/image@2x.gif 2x"'
     );
   });
 
@@ -466,7 +493,7 @@ describe('markdownPipeline', () => {
     );
 
     expect(result.html).toContain(
-      'data-remote-src="https://example.com/image.gif"'
+      'data-omv-remote-src="https://example.com/image.gif"'
     );
     expect(result.html).toContain(
       'src="vscode-webview://file:///workspace/docs/images/local.gif"'
@@ -475,7 +502,7 @@ describe('markdownPipeline', () => {
       'srcset="vscode-webview://file:///workspace/docs/images/local.gif 1x"'
     );
     expect(result.html).toContain(
-      'data-export-srcset="file:///workspace/docs/images/local.gif 1x, https://example.com/image@2x.gif 2x"'
+      'data-omv-export-srcset="file:///workspace/docs/images/local.gif 1x, https://example.com/image@2x.gif 2x"'
     );
   });
 
@@ -509,7 +536,7 @@ describe('markdownPipeline', () => {
       'srcset="vscode-webview://file:///workspace/.omv-cache/image.gif 1x"'
     );
     expect(result.html).toContain(
-      'data-export-srcset="file:///workspace/.omv-cache/image.gif 1x, https://example.com/image@2x.gif 2x"'
+      'data-omv-export-srcset="file:///workspace/.omv-cache/image.gif 1x, https://example.com/image@2x.gif 2x"'
     );
   });
 
@@ -537,7 +564,7 @@ describe('markdownPipeline', () => {
       'srcset="vscode-webview://file:///workspace/docs/images/local.gif 1x, https://example.com/image@2x.gif 2x"'
     );
     expect(result.html).toContain(
-      'data-export-srcset="file:///workspace/docs/images/local.gif 1x, https://example.com/image@2x.gif 2x"'
+      'data-omv-export-srcset="file:///workspace/docs/images/local.gif 1x, https://example.com/image@2x.gif 2x"'
     );
   });
 
@@ -563,7 +590,7 @@ describe('markdownPipeline', () => {
     expect(result.html).toContain(
       `data-template="<img src='images/scroll.gif' alt='demo'>"`
     );
-    expect(result.html).not.toContain('data-local-src=');
+    expect(result.html).not.toContain('data-omv-local-src=');
     expect(result.html).toContain('data-kind="example"');
   });
 
@@ -594,7 +621,7 @@ describe('markdownPipeline', () => {
     expect(result.html).toContain(
       '<script type="application/json">{"html":"<img src=\\"images/scroll.gif\\" alt=\\"demo\\" />"}</script>'
     );
-    expect(result.html).not.toContain('data-local-src=');
+    expect(result.html).not.toContain('data-omv-local-src=');
   });
 
   it('preserves blocked remote srcset candidates for export metadata', () => {
@@ -620,12 +647,12 @@ describe('markdownPipeline', () => {
       'srcset="vscode-webview://file:///workspace/docs/images/scroll.gif 1x"'
     );
     expect(result.html).toContain(
-      'data-export-srcset="file:///workspace/docs/images/scroll.gif 1x, https://cdn.example.com/scroll@2x.gif 2x"'
+      'data-omv-export-srcset="file:///workspace/docs/images/scroll.gif 1x, https://cdn.example.com/scroll@2x.gif 2x"'
     );
     expect(result.html).toContain(
-      'data-remote-src="https://cdn.example.com/scroll@2x.gif"'
+      'data-omv-remote-src="https://cdn.example.com/scroll@2x.gif"'
     );
-    expect(result.html).toContain('data-image-blocked="remote-disabled"');
+    expect(result.html).toContain('data-omv-image-blocked="remote-disabled"');
   });
 
   it('marks srcset-only local raw HTML images as blocked when size filtering removes every candidate', () => {
@@ -652,11 +679,11 @@ describe('markdownPipeline', () => {
     expect(result.html).toContain(
       'alt="demo (blocked: exceeds preview.maxImageMB)"'
     );
-    expect(result.html).toContain('data-image-blocked="size-limit"');
+    expect(result.html).toContain('data-omv-image-blocked="size-limit"');
     expect(result.html).toContain('src=""');
     expect(result.html).toContain('srcset=""');
     expect(result.html).toContain(
-      'data-export-srcset="file:///workspace/docs/images/scroll.gif 1x, file:///workspace/docs/images/scroll@2x.gif 2x"'
+      'data-omv-export-srcset="file:///workspace/docs/images/scroll.gif 1x, file:///workspace/docs/images/scroll@2x.gif 2x"'
     );
   });
 
@@ -683,7 +710,7 @@ describe('markdownPipeline', () => {
       'srcset="data:image/svg+xml;base64,PHN2Zy8+ 1x, vscode-webview://file:///workspace/docs/images/scroll@2x.gif 2x"'
     );
     expect(result.html).toContain(
-      'data-export-srcset="data:image/svg+xml;base64,PHN2Zy8+ 1x, file:///workspace/docs/images/scroll@2x.gif 2x"'
+      'data-omv-export-srcset="data:image/svg+xml;base64,PHN2Zy8+ 1x, file:///workspace/docs/images/scroll@2x.gif 2x"'
     );
   });
 });

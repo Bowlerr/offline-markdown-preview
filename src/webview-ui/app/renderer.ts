@@ -13,6 +13,13 @@ import type {
   RenderPayload,
   TocItem
 } from '../../extension/messaging/protocol';
+import {
+  OMV_EXPORT_SRCSET_ATTR,
+  OMV_IMAGE_BLOCKED_ATTR,
+  OMV_LOCAL_SRC_ATTR,
+  OMV_MAX_MB_ATTR,
+  OMV_REMOTE_SRC_ATTR
+} from '../../previewImageMetadata';
 import { markRemoteImagePreviewHidden } from './remoteImageAttrs';
 import { getEffectiveMermaidThemeKind } from './themeUtils';
 
@@ -101,11 +108,11 @@ export class PreviewRenderer {
             'data-mermaid',
             'data-math',
             'data-omv-link',
-            'data-local-src',
-            'data-export-srcset',
-            'data-remote-src',
-            'data-image-blocked',
-            'data-max-mb',
+            OMV_LOCAL_SRC_ATTR,
+            OMV_EXPORT_SRCSET_ATTR,
+            OMV_REMOTE_SRC_ATTR,
+            OMV_IMAGE_BLOCKED_ATTR,
+            OMV_MAX_MB_ATTR,
             'data-source-line',
             'data-source-line-end',
             'data-align',
@@ -199,20 +206,20 @@ export class PreviewRenderer {
 
   private decorateImageActions(): void {
     const imgs = this.content.querySelectorAll<HTMLImageElement>(
-      'img[data-local-src]'
+      `img[${OMV_LOCAL_SRC_ATTR}]`
     );
     for (const img of imgs) {
       img.addEventListener('click', () => {
-        const localSrc = img.getAttribute('data-local-src');
+        const localSrc = img.getAttribute(OMV_LOCAL_SRC_ATTR);
         if (localSrc) this.bridge.onOpenImage(localSrc);
       });
     }
 
     const remoteImgs = this.content.querySelectorAll<HTMLImageElement>(
-      'img[data-remote-src]'
+      `img[${OMV_REMOTE_SRC_ATTR}]`
     );
     for (const img of remoteImgs) {
-      const src = img.getAttribute('data-remote-src');
+      const src = img.getAttribute(OMV_REMOTE_SRC_ATTR);
       if (!src) continue;
       const hasPreviewSource = Boolean(
         (img.getAttribute('src') ?? '').trim() ||

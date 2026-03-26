@@ -8,6 +8,15 @@ import taskLists from 'markdown-it-task-lists';
 
 import type { FrontmatterInfo, TocItem } from '../../messaging/protocol';
 import {
+  OMV_EXPORT_SRCSET_ATTR,
+  OMV_IMAGE_BLOCKED_ATTR,
+  OMV_IMAGE_BLOCKED_REMOTE_DISABLED,
+  OMV_IMAGE_BLOCKED_SIZE_LIMIT,
+  OMV_LOCAL_SRC_ATTR,
+  OMV_MAX_MB_ATTR,
+  OMV_REMOTE_SRC_ATTR
+} from '../../../previewImageMetadata';
+import {
   getHtmlAttribute,
   mapHtmlImgTags,
   parseHtmlImgTag,
@@ -185,7 +194,7 @@ function rewriteSrcsetAttribute(
 
   setHtmlAttribute(
     attributes,
-    'data-export-srcset',
+    OMV_EXPORT_SRCSET_ATTR,
     serializeHtmlSrcset(exportCandidates)
   );
   setHtmlAttribute(
@@ -209,12 +218,27 @@ function setBlockedRemoteImageMetadata(
     return;
   }
 
-  if (!getHtmlAttribute(attributes, 'data-remote-src')?.value) {
-    setHtmlAttribute(attributes, 'data-remote-src', blockedCandidates[0].url);
+  if (!getHtmlAttribute(attributes, OMV_REMOTE_SRC_ATTR)?.value) {
+    setHtmlAttribute(attributes, OMV_REMOTE_SRC_ATTR, blockedCandidates[0].url);
   }
-  if (!getHtmlAttribute(attributes, 'data-image-blocked')?.value) {
-    setHtmlAttribute(attributes, 'data-image-blocked', 'remote-disabled');
+  if (!getHtmlAttribute(attributes, OMV_IMAGE_BLOCKED_ATTR)?.value) {
+    setHtmlAttribute(
+      attributes,
+      OMV_IMAGE_BLOCKED_ATTR,
+      OMV_IMAGE_BLOCKED_REMOTE_DISABLED
+    );
   }
+}
+
+function setHtmlAttributeIfAbsent(
+  attributes: Array<{ name: string; value?: string }>,
+  name: string,
+  value: string
+): void {
+  if (getHtmlAttribute(attributes, name)) {
+    return;
+  }
+  setHtmlAttribute(attributes, name, value);
 }
 
 function rewriteImageAttributes(
@@ -229,20 +253,20 @@ function rewriteImageAttributes(
   let blockedBySizeLimit = false;
 
   if (override) {
-    setHtmlAttribute(attributes, 'data-local-src', override.toString());
+    setHtmlAttribute(attributes, OMV_LOCAL_SRC_ATTR, override.toString());
     setHtmlAttribute(
       attributes,
       'src',
       options.webview.asWebviewUri(override).toString()
     );
   } else if (resolved) {
-    setHtmlAttribute(attributes, 'data-local-src', resolved.toString());
+    setHtmlAttribute(attributes, OMV_LOCAL_SRC_ATTR, resolved.toString());
     try {
       const bytes = statSync(resolved.fsPath).size;
       if (bytes > options.maxImageMB * 1024 * 1024) {
         blockedBySizeLimit = true;
         setHtmlAttribute(attributes, 'src', '');
-        setHtmlAttribute(attributes, 'data-max-mb', String(options.maxImageMB));
+        setHtmlAttribute(attributes, OMV_MAX_MB_ATTR, String(options.maxImageMB));
       } else {
         setHtmlAttribute(
           attributes,
@@ -259,8 +283,12 @@ function rewriteImageAttributes(
       );
     }
   } else if (blockedRemoteImage) {
-    setHtmlAttribute(attributes, 'data-remote-src', rawSrc);
-    setHtmlAttribute(attributes, 'data-image-blocked', 'remote-disabled');
+    setHtmlAttribute(attributes, OMV_REMOTE_SRC_ATTR, rawSrc);
+    setHtmlAttribute(
+      attributes,
+      OMV_IMAGE_BLOCKED_ATTR,
+      OMV_IMAGE_BLOCKED_REMOTE_DISABLED
+    );
   }
 
   const srcsetRewrite = rewriteSrcsetAttribute(attributes, options);
@@ -286,13 +314,17 @@ function rewriteImageAttributes(
       'alt',
       `${alt} (blocked: exceeds preview.maxImageMB)`
     );
-    setHtmlAttribute(attributes, 'data-image-blocked', 'size-limit');
+    setHtmlAttribute(
+      attributes,
+      OMV_IMAGE_BLOCKED_ATTR,
+      OMV_IMAGE_BLOCKED_SIZE_LIMIT
+    );
   }
 
-  setHtmlAttribute(attributes, 'loading', 'lazy');
-  setHtmlAttribute(attributes, 'decoding', 'async');
-  setHtmlAttribute(attributes, 'referrerpolicy', 'no-referrer');
-  setHtmlAttribute(attributes, 'data-max-mb', String(options.maxImageMB));
+  setHtmlAttributeIfAbsent(attributes, 'loading', 'lazy');
+  setHtmlAttributeIfAbsent(attributes, 'decoding', 'async');
+  setHtmlAttributeIfAbsent(attributes, 'referrerpolicy', 'no-referrer');
+  setHtmlAttribute(attributes, OMV_MAX_MB_ATTR, String(options.maxImageMB));
 }
 
 function rewriteRawHtmlImages(
@@ -306,10 +338,10 @@ function rewriteRawHtmlImages(
     }
 
     if (
-      getHtmlAttribute(parsed.attributes, 'data-local-src') ||
-      getHtmlAttribute(parsed.attributes, 'data-remote-src') ||
-      getHtmlAttribute(parsed.attributes, 'data-image-blocked') ||
-      getHtmlAttribute(parsed.attributes, 'data-export-srcset')
+      getHtmlAttribute(parsed.attributes, OMV_LOCAL_SRC_ATTR) ||
+      getHtmlAttribute(parsed.attributes, OMV_REMOTE_SRC_ATTR) ||
+      getHtmlAttribute(parsed.attributes, OMV_IMAGE_BLOCKED_ATTR) ||
+      getHtmlAttribute(parsed.attributes, OMV_EXPORT_SRCSET_ATTR)
     ) {
       return tag;
     }
@@ -341,16 +373,24 @@ function rewriteRawHtmlImages(
             'alt',
             `${alt} (blocked: exceeds preview.maxImageMB)`
           );
-          setHtmlAttribute(parsed.attributes, 'data-image-blocked', 'size-limit');
+          setHtmlAttribute(
+            parsed.attributes,
+            OMV_IMAGE_BLOCKED_ATTR,
+            OMV_IMAGE_BLOCKED_SIZE_LIMIT
+          );
           setHtmlAttribute(parsed.attributes, 'src', '');
         }
       }
-      setHtmlAttribute(parsed.attributes, 'loading', 'lazy');
-      setHtmlAttribute(parsed.attributes, 'decoding', 'async');
-      setHtmlAttribute(parsed.attributes, 'referrerpolicy', 'no-referrer');
+      setHtmlAttributeIfAbsent(parsed.attributes, 'loading', 'lazy');
+      setHtmlAttributeIfAbsent(parsed.attributes, 'decoding', 'async');
+      setHtmlAttributeIfAbsent(
+        parsed.attributes,
+        'referrerpolicy',
+        'no-referrer'
+      );
       setHtmlAttribute(
         parsed.attributes,
-        'data-max-mb',
+        OMV_MAX_MB_ATTR,
         String(options.maxImageMB)
       );
     }
@@ -581,7 +621,7 @@ function createMarkdownIt(options: MarkdownRenderOptions): MarkdownIt {
     const override = options.remoteImageOverrides?.get(src);
     const resolved = resolveImageUri(options.sourceUri, src);
     if (override) {
-      token.attrSet('data-local-src', override.toString());
+      token.attrSet(OMV_LOCAL_SRC_ATTR, override.toString());
       token.attrSet('src', options.webview.asWebviewUri(override).toString());
     } else if (resolved) {
       try {
@@ -591,24 +631,27 @@ function createMarkdownIt(options: MarkdownRenderOptions): MarkdownIt {
             'alt',
             `${token.attrGet('alt') ?? 'image'} (blocked: exceeds preview.maxImageMB)`
           );
-          token.attrSet('data-image-blocked', 'size-limit');
+          token.attrSet(OMV_IMAGE_BLOCKED_ATTR, OMV_IMAGE_BLOCKED_SIZE_LIMIT);
           token.attrSet('src', '');
           return imageRule ? imageRule(tokens, idx, opts, env, self) : self.renderToken(tokens, idx, opts);
         }
       } catch {
         // If stat fails we leave the original src untouched; CSP/runtime policy governs remote sources.
       }
-      token.attrSet('data-local-src', resolved.toString());
+      token.attrSet(OMV_LOCAL_SRC_ATTR, resolved.toString());
       token.attrSet('src', options.webview.asWebviewUri(resolved).toString());
     } else if (/^https?:\/\//i.test(src) && !options.allowRemoteImages) {
-      token.attrSet('data-remote-src', src);
-      token.attrSet('data-image-blocked', 'remote-disabled');
+      token.attrSet(OMV_REMOTE_SRC_ATTR, src);
+      token.attrSet(
+        OMV_IMAGE_BLOCKED_ATTR,
+        OMV_IMAGE_BLOCKED_REMOTE_DISABLED
+      );
       token.attrSet('src', '');
     }
     token.attrSet('loading', 'lazy');
     token.attrSet('decoding', 'async');
     token.attrSet('referrerpolicy', 'no-referrer');
-    token.attrSet('data-max-mb', String(options.maxImageMB));
+    token.attrSet(OMV_MAX_MB_ATTR, String(options.maxImageMB));
     return imageRule ? imageRule(tokens, idx, opts, env, self) : self.renderToken(tokens, idx, opts);
   };
 
