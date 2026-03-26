@@ -48,6 +48,11 @@ export function createVscodeMock(workspaceRoot?: string) {
 
   return {
     Uri,
+    extensions: {
+      getExtension() {
+        return undefined;
+      }
+    },
     workspace: {
       workspaceFile: undefined,
       workspaceFolders,
@@ -55,10 +60,7 @@ export function createVscodeMock(workspaceRoot?: string) {
       getWorkspaceFolder(uri: Uri) {
         return workspaceFolders.find((folder) => {
           const rel = path.relative(folder.uri.fsPath, uri.fsPath);
-          return (
-            rel === '' ||
-            (!rel.startsWith('..') && !path.isAbsolute(rel))
-          );
+          return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel));
         });
       }
     }

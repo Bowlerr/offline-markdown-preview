@@ -54,7 +54,9 @@ function createPreviewPanelTestContext(options: {
   customCssUris?: InstanceType<typeof Uri>[];
   baseCssText?: string;
 }) {
-  const workspaceFolders = options.workspaceFolderPaths.map(createWorkspaceFolder);
+  const workspaceFolders = options.workspaceFolderPaths.map(
+    createWorkspaceFolder
+  );
   const textDocumentChange = createEventHook<{
     document: { uri: InstanceType<typeof Uri> };
   }>();
@@ -66,16 +68,21 @@ function createPreviewPanelTestContext(options: {
     uri: InstanceType<typeof Uri>;
   }>();
   const configurationChange = createEventHook<{
-    affectsConfiguration: (section: string, resource?: InstanceType<typeof Uri>) => boolean;
+    affectsConfiguration: (
+      section: string,
+      resource?: InstanceType<typeof Uri>
+    ) => boolean;
   }>();
   const activeEditorChange = createEventHook<unknown>();
   const visibleRangesChange = createEventHook<unknown>();
   const update = vi.fn().mockResolvedValue(undefined);
   const showInformationMessage = vi.fn().mockResolvedValue(undefined);
   const showWarningMessage = vi.fn().mockResolvedValue(undefined);
-  const showOpenDialog = vi.fn().mockResolvedValue(
-    options.openDialogPath ? [Uri.file(options.openDialogPath)] : undefined
-  );
+  const showOpenDialog = vi
+    .fn()
+    .mockResolvedValue(
+      options.openDialogPath ? [Uri.file(options.openDialogPath)] : undefined
+    );
 
   const activeTextEditor = options.activeEditorPath
     ? {
@@ -115,6 +122,9 @@ function createPreviewPanelTestContext(options: {
         if (key === 'preview.autoOpen') {
           return false as T;
         }
+        if (key === 'preview.useMarkdownPreviewGithubStyling') {
+          return false as T;
+        }
         return defaultValue;
       },
       inspect<T>() {
@@ -126,10 +136,12 @@ function createPreviewPanelTestContext(options: {
       },
       update
     })),
-    onDidChangeTextDocument: (listener: Listener<{ document: { uri: InstanceType<typeof Uri> } }>) =>
-      textDocumentChange.register(listener),
-    onDidSaveTextDocument: (listener: Listener<{ uri: InstanceType<typeof Uri> }>) =>
-      textDocumentSave.register(listener),
+    onDidChangeTextDocument: (
+      listener: Listener<{ document: { uri: InstanceType<typeof Uri> } }>
+    ) => textDocumentChange.register(listener),
+    onDidSaveTextDocument: (
+      listener: Listener<{ uri: InstanceType<typeof Uri> }>
+    ) => textDocumentSave.register(listener),
     onDidCloseTextDocument: (
       listener: Listener<{ languageId: string; uri: InstanceType<typeof Uri> }>
     ) => textDocumentClose.register(listener),
@@ -148,6 +160,7 @@ function createPreviewPanelTestContext(options: {
     workspace,
     window: {
       activeTextEditor,
+      activeColorTheme: { kind: 2 },
       showQuickPick,
       showOpenDialog,
       showInformationMessage,
@@ -161,6 +174,12 @@ function createPreviewPanelTestContext(options: {
     EventEmitter,
     TreeItem: class {},
     TreeItemCollapsibleState: { None: 0 },
+    ColorThemeKind: {
+      Light: 1,
+      Dark: 2,
+      HighContrast: 3,
+      HighContrastLight: 4
+    },
     ViewColumn: {
       Active: 1,
       Beside: 2
@@ -193,9 +212,13 @@ function createPreviewPanelTestContext(options: {
     buildWebviewCsp: vi.fn(() => ''),
     confirmSanitizeDisabled: vi.fn(async () => true),
     createNonce: vi.fn(() => 'nonce'),
-    getConfiguredCustomCssUris: vi.fn(
-      () => options.customCssUris ?? []
-    ),
+    getConfiguredCustomCssUris: vi.fn(() => options.customCssUris ?? []),
+    getGithubMarkdownStyleSettings: vi.fn((enabled: boolean) => ({
+      enabled,
+      colorMode: 'light',
+      lightTheme: 'light',
+      darkTheme: 'dark'
+    })),
     getWorkspaceCustomCssBaseUri: vi.fn(() =>
       options.workspaceFilePath
         ? Uri.file(path.dirname(options.workspaceFilePath))
@@ -214,13 +237,14 @@ function createPreviewPanelTestContext(options: {
   };
 
   const fsMock = {
-    readFile: vi.fn().mockResolvedValue(
-      options.baseCssText ?? 'body { color: black; }'
-    )
+    readFile: vi
+      .fn()
+      .mockResolvedValue(options.baseCssText ?? 'body { color: black; }')
   };
 
   return {
     changeTextDocument: textDocumentChange.fire,
+    changeConfiguration: configurationChange.fire,
     closeTextDocument: textDocumentClose.fire,
     fsMock,
     renderMarkdown: vi.fn(() => ({
@@ -245,7 +269,10 @@ async function loadPreviewPanelTestModule(
   vi.doMock('../../src/extension/preview/markdown/markdownPipeline', () => ({
     renderMarkdown: context.renderMarkdown
   }));
-  vi.doMock('../../src/extension/preview/markdown/security', () => context.securityMock);
+  vi.doMock(
+    '../../src/extension/preview/markdown/security',
+    () => context.securityMock
+  );
   const module = await import('../../src/extension/preview/PreviewPanel');
   return { ...context, module };
 }
@@ -259,9 +286,54 @@ afterEach(() => {
 });
 
 describe('PreviewController custom CSS', () => {
+  it('enables installed GitHub Markdown styling in user settings', async () => {
+    const { module, update, vscodeMock } = await loadPreviewPanelTestModule({
+      workspaceFolderPaths: ['/workspace-root/workspace-a'],
+      activeEditorPath: '/workspace-root/workspace-a/doc.md',
+      quickPickLabel: 'Use Installed GitHub Markdown Styling'
+    });
+
+    const controller = new module.PreviewController({
+      extensionUri: Uri.file('/extension'),
+      globalStorageUri: Uri.file('/global-storage')
+    } as any);
+
+    await controller.configureCustomCss();
+
+    expect(update).toHaveBeenCalledWith(
+      'preview.useMarkdownPreviewGithubStyling',
+      true,
+      vscodeMock.ConfigurationTarget.Global
+    );
+  });
+
+  it('disables installed GitHub Markdown styling in user settings', async () => {
+    const { module, update, vscodeMock } = await loadPreviewPanelTestModule({
+      workspaceFolderPaths: ['/workspace-root/workspace-a'],
+      activeEditorPath: '/workspace-root/workspace-a/doc.md',
+      quickPickLabel: 'Disable Installed GitHub Markdown Styling'
+    });
+
+    const controller = new module.PreviewController({
+      extensionUri: Uri.file('/extension'),
+      globalStorageUri: Uri.file('/global-storage')
+    } as any);
+
+    await controller.configureCustomCss();
+
+    expect(update).toHaveBeenCalledWith(
+      'preview.useMarkdownPreviewGithubStyling',
+      false,
+      vscodeMock.ConfigurationTarget.Global
+    );
+  });
+
   it('writes workspace custom CSS to workspace settings', async () => {
     const { module, update, vscodeMock } = await loadPreviewPanelTestModule({
-      workspaceFolderPaths: ['/workspace-root/workspace-a', '/workspace-root/workspace-b'],
+      workspaceFolderPaths: [
+        '/workspace-root/workspace-a',
+        '/workspace-root/workspace-b'
+      ],
       workspaceFilePath: '/workspace-root/demo.code-workspace',
       activeEditorPath: '/workspace-root/workspace-a/doc.md',
       quickPickLabel: 'Set Workspace Custom CSS',
@@ -284,7 +356,10 @@ describe('PreviewController custom CSS', () => {
 
   it('clears folder custom CSS by removing the override', async () => {
     const { module, update, vscodeMock } = await loadPreviewPanelTestModule({
-      workspaceFolderPaths: ['/workspace-root/workspace-a', '/workspace-root/workspace-b'],
+      workspaceFolderPaths: [
+        '/workspace-root/workspace-a',
+        '/workspace-root/workspace-b'
+      ],
       workspaceFilePath: '/workspace-root/demo.code-workspace',
       activeEditorPath: '/workspace-root/workspace-a/doc.md',
       quickPickLabel: 'Clear Folder Custom CSS'
@@ -306,7 +381,10 @@ describe('PreviewController custom CSS', () => {
 
   it('scopes folder custom CSS to the active non-markdown editor folder', async () => {
     const { module, update, vscodeMock } = await loadPreviewPanelTestModule({
-      workspaceFolderPaths: ['/workspace-root/workspace-a', '/workspace-root/workspace-b'],
+      workspaceFolderPaths: [
+        '/workspace-root/workspace-a',
+        '/workspace-root/workspace-b'
+      ],
       workspaceFilePath: '/workspace-root/demo.code-workspace',
       activeEditorPath: '/workspace-root/workspace-b/notes.txt',
       activeEditorLanguageId: 'plaintext',
@@ -448,6 +526,38 @@ describe('PreviewController custom CSS', () => {
     expect(renderMarkdown).not.toHaveBeenCalled();
   });
 
+  it('marks webview CSS dirty when installed GitHub styling configuration changes', async () => {
+    const { changeConfiguration, module } = await loadPreviewPanelTestModule({
+      workspaceFolderPaths: ['/workspace-a'],
+      activeEditorPath: '/workspace-a/doc.md'
+    });
+
+    const controller = new module.PreviewController({
+      extensionUri: Uri.file('/extension'),
+      globalStorageUri: Uri.file('/global-storage')
+    } as any);
+
+    (controller as any).currentEditor = {
+      document: {
+        languageId: 'markdown',
+        uri: Uri.file('/workspace-a/doc.md'),
+        lineCount: 1,
+        version: 1,
+        getText: () => '# Doc'
+      }
+    };
+    (controller as any).webviewCustomCssDirty = false;
+
+    changeConfiguration({
+      affectsConfiguration: (section: string) =>
+        section === 'offlineMarkdownViewer' ||
+        section ===
+          'offlineMarkdownViewer.preview.useMarkdownPreviewGithubStyling'
+    });
+
+    expect((controller as any).webviewCustomCssDirty).toBe(true);
+  });
+
   it('keeps custom CSS in separate style tags in standalone export HTML', async () => {
     const { module, securityMock } = await loadPreviewPanelTestModule({
       workspaceFolderPaths: ['/workspace-a']
@@ -456,6 +566,7 @@ describe('PreviewController custom CSS', () => {
     securityMock.resolveCustomCss.mockResolvedValue({
       key: 'export-custom-css',
       cssTexts: [
+        '.github-markdown-body { color: black; }',
         '.omv-content { color: red; }',
         '@import url("https://example.com/theme.css");'
       ]
@@ -471,6 +582,10 @@ describe('PreviewController custom CSS', () => {
       Uri.file('/workspace-a/doc.md'),
       {
         showFrontmatter: false
+      },
+      {
+        '--omv-active-pre-bg': 'rgb(1, 2, 3)',
+        '--omv-mermaid-border': 'rgb(4, 5, 6)'
       }
     );
 
@@ -479,13 +594,27 @@ describe('PreviewController custom CSS', () => {
     );
     expect(html).toContain('<style>body { color: black; }</style>');
     expect(html).toContain(
-      '<style data-omv-custom-css="0">.omv-content { color: red; }</style>'
+      '<style data-omv-custom-css="0">.github-markdown-body { color: black; }</style>'
     );
     expect(html).toContain(
-      '<style data-omv-custom-css="1">@import url("https://example.com/theme.css");</style>'
+      '<style data-omv-custom-css="1">.omv-content { color: red; }</style>'
+    );
+    expect(html).toContain(
+      '<style data-omv-custom-css="2">@import url("https://example.com/theme.css");</style>'
+    );
+    expect(html).toContain(
+      '<div class="omv-content markdown-body github-markdown-body" data-color-mode="light" data-light-theme="light" data-dark-theme="dark" style="--omv-active-pre-bg: rgb(1, 2, 3); --omv-mermaid-border: rgb(4, 5, 6);">'
+    );
+    expect(html).toContain('<div class="github-markdown-content">');
+    expect(html).toContain('<body class="vscode-body vscode-dark">');
+    expect(html).toContain(
+      '<div class="github-markdown-content">\n<p>Rendered</p>\n</div>'
     );
     expect(html.indexOf('<style data-omv-custom-css="0">')).toBeLessThan(
       html.indexOf('<style data-omv-custom-css="1">')
+    );
+    expect(html.indexOf('<style data-omv-custom-css="1">')).toBeLessThan(
+      html.indexOf('<style data-omv-custom-css="2">')
     );
   });
 });

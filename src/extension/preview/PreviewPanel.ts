@@ -23,6 +23,7 @@ import {
   confirmSanitizeDisabled,
   createNonce,
   getConfiguredCustomCssUris,
+  getGithubMarkdownStyleSettings,
   getWorkspaceCustomCssBaseUri,
   inlineCssTag,
   resolveCustomCss
@@ -31,6 +32,11 @@ import {
 interface PreviewPanelState {
   snapshot?: RenderedDocumentSnapshot;
   toc: TocItem[];
+}
+
+interface HtmlExportSnapshotData {
+  html: string;
+  themeVariables?: Record<string, string>;
 }
 
 interface RuntimeSettings {
@@ -45,15 +51,20 @@ interface RuntimeSettings {
   maxImageMB: number;
   embedImages: boolean;
   debounceMs: number;
+  useMarkdownPreviewGithubStyling: boolean;
 }
 
 interface CustomCssCommandChoice {
   label: string;
   description: string;
-  settingKey: 'preview.globalCustomCssPath' | 'preview.customCssPath';
+  settingKey:
+    | 'preview.globalCustomCssPath'
+    | 'preview.customCssPath'
+    | 'preview.useMarkdownPreviewGithubStyling';
   target: vscode.ConfigurationTarget;
   workspaceFolder?: vscode.WorkspaceFolder;
   clear?: boolean;
+  value?: boolean;
 }
 
 function getSettings(resource?: vscode.Uri): RuntimeSettings {
@@ -72,7 +83,11 @@ function getSettings(resource?: vscode.Uri): RuntimeSettings {
     externalConfirm: cfg.get<boolean>('externalLinks.confirm', true),
     maxImageMB: cfg.get<number>('preview.maxImageMB', 8),
     embedImages: cfg.get<boolean>('export.embedImages', false),
-    debounceMs: cfg.get<number>('performance.debounceMs', 120)
+    debounceMs: cfg.get<number>('performance.debounceMs', 120),
+    useMarkdownPreviewGithubStyling: cfg.get<boolean>(
+      'preview.useMarkdownPreviewGithubStyling',
+      false
+    )
   };
 }
 
@@ -100,6 +115,25 @@ function isUriWithinFolder(
     relative === '' ||
     (!relative.startsWith('..') && !path.isAbsolute(relative))
   );
+}
+
+function getExportThemeBodyClass(): string {
+  switch (vscode.window.activeColorTheme.kind) {
+    case vscode.ColorThemeKind.Light:
+      return 'vscode-body vscode-light';
+    case vscode.ColorThemeKind.HighContrastLight:
+      return 'vscode-body vscode-light vscode-high-contrast';
+    case vscode.ColorThemeKind.HighContrast:
+      return 'vscode-body vscode-dark vscode-high-contrast';
+    case vscode.ColorThemeKind.Dark:
+    default:
+      return 'vscode-body vscode-dark';
+  }
+}
+
+function buildGitHubMarkdownStyleAttributes(enabled: boolean): string {
+  const githubStyle = getGithubMarkdownStyleSettings(enabled);
+  return ` data-color-mode="${githubStyle.colorMode}" data-light-theme="${githubStyle.lightTheme}" data-dark-theme="${githubStyle.darkTheme}"`;
 }
 
 export class MarkdownOutlineProvider
@@ -164,7 +198,7 @@ export class PreviewController implements vscode.Disposable {
   private pendingHtmlExportSnapshot:
     | {
         requestId: number;
-        resolve: (html: string | undefined) => void;
+        resolve: (snapshot: HtmlExportSnapshotData | undefined) => void;
         timer: NodeJS.Timeout;
       }
     | undefined;
@@ -286,12 +320,19 @@ export class PreviewController implements vscode.Disposable {
         });
       }),
       vscode.workspace.onDidChangeConfiguration((e) => {
-        if (e.affectsConfiguration('offlineMarkdownViewer')) {
+        if (
+          e.affectsConfiguration('offlineMarkdownViewer') ||
+          e.affectsConfiguration('markdown-preview-github-styles')
+        ) {
           if (
             this.currentEditor &&
+            e.affectsConfiguration('offlineMarkdownViewer') &&
             (e.affectsConfiguration(
               'offlineMarkdownViewer.preview.globalCustomCssPath'
             ) ||
+              e.affectsConfiguration(
+                'offlineMarkdownViewer.preview.useMarkdownPreviewGithubStyling'
+              ) ||
               e.affectsConfiguration(
                 'offlineMarkdownViewer.preview.customCssPath',
                 this.currentEditor.document.uri
@@ -429,8 +470,8 @@ export class PreviewController implements vscode.Disposable {
     if (!snapshot) return;
 
     const settings = getSettings(snapshot.uri);
-    let html =
-      (await this.requestRenderedHtmlExportSnapshot()) ?? snapshot.html;
+    const renderedSnapshot = await this.requestRenderedHtmlExportSnapshot();
+    let html = renderedSnapshot?.html ?? snapshot.html;
     html = this.rewriteLocalImageSourcesForExport(html);
     if (settings.embedImages) {
       const answer = await vscode.window.showWarningMessage(
@@ -455,7 +496,8 @@ export class PreviewController implements vscode.Disposable {
     const document = await this.buildStandaloneHtml(
       html,
       snapshot.uri,
-      settings
+      settings,
+      renderedSnapshot?.themeVariables
     );
     await vscode.workspace.fs.writeFile(target, Buffer.from(document, 'utf8'));
     void vscode.window.showInformationMessage(
@@ -475,8 +517,8 @@ export class PreviewController implements vscode.Disposable {
     if (!snapshot) return;
 
     const settings = getSettings(snapshot.uri);
-    let html =
-      (await this.requestRenderedHtmlExportSnapshot()) ?? snapshot.html;
+    const renderedSnapshot = await this.requestRenderedHtmlExportSnapshot();
+    let html = renderedSnapshot?.html ?? snapshot.html;
     html = this.rewriteLocalImageSourcesForExport(html);
 
     if (settings.embedImages) {
@@ -502,7 +544,8 @@ export class PreviewController implements vscode.Disposable {
     const document = await this.buildStandaloneHtml(
       html,
       snapshot.uri,
-      settings
+      settings,
+      renderedSnapshot?.themeVariables
     );
     const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'omv-pdf-'));
     const tempHtmlPath = path.join(
@@ -568,6 +611,22 @@ export class PreviewController implements vscode.Disposable {
 
     const choices: CustomCssCommandChoice[] = [
       {
+        label: 'Use Installed GitHub Markdown Styling',
+        description:
+          'Load CSS from bierner.markdown-preview-github-styles when it is installed',
+        settingKey: 'preview.useMarkdownPreviewGithubStyling',
+        target: vscode.ConfigurationTarget.Global,
+        value: true
+      },
+      {
+        label: 'Disable Installed GitHub Markdown Styling',
+        description:
+          'Use only OMV base CSS and any configured custom stylesheets',
+        settingKey: 'preview.useMarkdownPreviewGithubStyling',
+        target: vscode.ConfigurationTarget.Global,
+        value: false
+      },
+      {
         label: 'Set Global Custom CSS',
         description: 'Choose a user-level .css file applied to every preview',
         settingKey: 'preview.globalCustomCssPath',
@@ -611,8 +670,7 @@ export class PreviewController implements vscode.Disposable {
       });
       choices.push({
         label: 'Clear Folder Custom CSS',
-        description:
-          `Remove the folder-level stylesheet for ${workspaceFolder.name}`,
+        description: `Remove the folder-level stylesheet for ${workspaceFolder.name}`,
         settingKey: 'preview.customCssPath',
         target: vscode.ConfigurationTarget.WorkspaceFolder,
         workspaceFolder,
@@ -621,7 +679,7 @@ export class PreviewController implements vscode.Disposable {
     }
 
     const picked = await vscode.window.showQuickPick(choices, {
-      placeHolder: 'Choose which custom CSS setting to configure'
+      placeHolder: 'Choose which preview style setting to configure'
     });
     if (!picked) return;
 
@@ -631,6 +689,19 @@ export class PreviewController implements vscode.Disposable {
     ) {
       void vscode.window.showInformationMessage(
         'Open a Markdown file inside a workspace folder to configure folder custom CSS.'
+      );
+      return;
+    }
+
+    if (
+      picked.settingKey === 'preview.useMarkdownPreviewGithubStyling' &&
+      typeof picked.value === 'boolean'
+    ) {
+      await cfg.update(picked.settingKey, picked.value, picked.target);
+      void vscode.window.showInformationMessage(
+        picked.value
+          ? 'Installed GitHub Markdown styling enabled.'
+          : 'Installed GitHub Markdown styling disabled.'
       );
       return;
     }
@@ -650,7 +721,7 @@ export class PreviewController implements vscode.Disposable {
     const defaultWorkspaceUri =
       picked.target === vscode.ConfigurationTarget.Workspace
         ? workspaceCustomCssBaseUri
-        : picked.workspaceFolder?.uri ?? workspaceFolder?.uri ?? resource;
+        : (picked.workspaceFolder?.uri ?? workspaceFolder?.uri ?? resource);
     const defaultUri =
       picked.settingKey === 'preview.globalCustomCssPath'
         ? resource
@@ -1014,7 +1085,10 @@ export class PreviewController implements vscode.Disposable {
         enableMath: settings.enableMath,
         scrollSync: settings.scrollSync,
         sanitizeHtml: settings.sanitizeHtml,
-        showFrontmatter: settings.showFrontmatter
+        showFrontmatter: settings.showFrontmatter,
+        githubMarkdownStyle: getGithubMarkdownStyleSettings(
+          settings.useMarkdownPreviewGithubStyling
+        )
       }
     });
   }
@@ -1123,7 +1197,10 @@ export class PreviewController implements vscode.Disposable {
           this.pendingHtmlExportSnapshot.requestId === message.requestId
         ) {
           clearTimeout(this.pendingHtmlExportSnapshot.timer);
-          this.pendingHtmlExportSnapshot.resolve(message.html);
+          this.pendingHtmlExportSnapshot.resolve({
+            html: message.html,
+            themeVariables: message.themeVariables
+          });
           this.pendingHtmlExportSnapshot = undefined;
         }
         break;
@@ -1283,7 +1360,7 @@ export class PreviewController implements vscode.Disposable {
   }
 
   private async requestRenderedHtmlExportSnapshot(): Promise<
-    string | undefined
+    HtmlExportSnapshotData | undefined
   > {
     if (!this.panel) return undefined;
 
@@ -1294,7 +1371,7 @@ export class PreviewController implements vscode.Disposable {
     }
 
     const requestId = ++this.htmlExportSnapshotReqId;
-    return new Promise<string | undefined>((resolve) => {
+    return new Promise<HtmlExportSnapshotData | undefined>((resolve) => {
       const timer = setTimeout(() => {
         if (this.pendingHtmlExportSnapshot?.requestId === requestId) {
           this.pendingHtmlExportSnapshot.resolve(undefined);
@@ -1707,7 +1784,8 @@ export class PreviewController implements vscode.Disposable {
   private async buildStandaloneHtml(
     bodyHtml: string,
     sourceUri: vscode.Uri,
-    settings: RuntimeSettings
+    settings: RuntimeSettings,
+    themeVariables?: Record<string, string>
   ): Promise<string> {
     const cssPath = vscode.Uri.joinPath(
       this.context.extensionUri,
@@ -1737,6 +1815,18 @@ export class PreviewController implements vscode.Disposable {
       settings.showFrontmatter && this.state.snapshot?.frontmatter
         ? `<details open><summary>Frontmatter</summary><pre>${escapeHtml(this.state.snapshot.frontmatter.raw)}</pre></details>`
         : '';
+    const githubStyleAttributes = buildGitHubMarkdownStyleAttributes(
+      settings.useMarkdownPreviewGithubStyling
+    );
+    const themeStyleAttribute = buildInlineStyleAttribute(themeVariables);
+    const wrappedBodyHtml = `<article class="omv-preview">
+${frontmatter}
+<div class="omv-content markdown-body github-markdown-body"${githubStyleAttributes}${themeStyleAttribute}>
+<div class="github-markdown-content">
+${bodyHtml}
+</div>
+</div>
+</article>`;
 
     return `<!DOCTYPE html>
 <html lang="en">
@@ -1747,9 +1837,8 @@ export class PreviewController implements vscode.Disposable {
 <style>${baseCss}</style>
 ${customCssTags}
 </head>
-<body>
-${frontmatter}
-${bodyHtml}
+<body class="${getExportThemeBodyClass()}">
+${wrappedBodyHtml}
 </body>
 </html>`;
   }
@@ -1774,6 +1863,21 @@ function escapeHtml(value: string): string {
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;');
+}
+
+function buildInlineStyleAttribute(
+  styleMap: Record<string, string> | undefined
+): string {
+  if (!styleMap) {
+    return '';
+  }
+
+  const declarations = Object.entries(styleMap)
+    .filter(([, value]) => value.trim().length > 0)
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([name, value]) => `${name}: ${value};`)
+    .join(' ');
+  return declarations ? ` style="${escapeHtml(declarations)}"` : '';
 }
 
 function isDisposedWebviewError(error: unknown): boolean {

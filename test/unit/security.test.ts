@@ -18,6 +18,14 @@ function createConfiguredVscodeMock(options: {
   workspaceRoot?: string;
   workspaceFolderPaths?: string[];
   workspaceFilePath?: string;
+  useMarkdownPreviewGithubStyling?: boolean;
+  githubMarkdownExtension?: {
+    extensionPath: string;
+    previewStyles?: unknown;
+  };
+  githubStyleColorTheme?: string;
+  githubStyleLightTheme?: string;
+  githubStyleDarkTheme?: string;
   globalCustomCssPath?: string;
   workspaceCustomCssPath?: string;
   workspaceFolderCustomCssPath?: string;
@@ -64,6 +72,12 @@ function createConfiguredVscodeMock(options: {
               return {
                 globalValue: options.globalCustomCssPath as T | undefined
               };
+            case 'preview.useMarkdownPreviewGithubStyling':
+              return {
+                globalValue: options.useMarkdownPreviewGithubStyling as
+                  | T
+                  | undefined
+              };
             case 'preview.customCssPath':
               return {
                 workspaceValue: options.workspaceCustomCssPath as T | undefined,
@@ -75,9 +89,52 @@ function createConfiguredVscodeMock(options: {
               return {};
           }
         },
-        get<T>(_key: string, defaultValue: T): T {
+        get<T>(key: string, defaultValue: T): T {
+          if (key === 'preview.useMarkdownPreviewGithubStyling') {
+            return (
+              (options.useMarkdownPreviewGithubStyling as T | undefined) ??
+              defaultValue
+            );
+          }
+          if (key === 'colorTheme') {
+            return (
+              (options.githubStyleColorTheme as T | undefined) ?? defaultValue
+            );
+          }
+          if (key === 'lightTheme') {
+            return (
+              (options.githubStyleLightTheme as T | undefined) ?? defaultValue
+            );
+          }
+          if (key === 'darkTheme') {
+            return (
+              (options.githubStyleDarkTheme as T | undefined) ?? defaultValue
+            );
+          }
           return defaultValue;
         }
+      })
+    },
+    extensions: {
+      getExtension: vi.fn((id: string) => {
+        if (
+          id !== 'bierner.markdown-preview-github-styles' ||
+          !options.githubMarkdownExtension
+        ) {
+          return undefined;
+        }
+
+        return {
+          extensionUri: base.Uri.file(
+            options.githubMarkdownExtension.extensionPath
+          ),
+          packageJSON: {
+            contributes: {
+              'markdown.previewStyles':
+                options.githubMarkdownExtension.previewStyles
+            }
+          }
+        };
       })
     },
     window: {
@@ -94,6 +151,14 @@ async function loadSecurity(
     workspaceRoot?: string;
     workspaceFolderPaths?: string[];
     workspaceFilePath?: string;
+    useMarkdownPreviewGithubStyling?: boolean;
+    githubMarkdownExtension?: {
+      extensionPath: string;
+      previewStyles?: unknown;
+    };
+    githubStyleColorTheme?: string;
+    githubStyleLightTheme?: string;
+    githubStyleDarkTheme?: string;
     globalCustomCssPath?: string;
     workspaceCustomCssPath?: string;
     workspaceFolderCustomCssPath?: string;
@@ -159,6 +224,129 @@ describe('security helpers', () => {
 
     expect(result.cssTexts).toEqual([]);
     expect(warnings).toEqual([]);
+  });
+
+  it('reads GitHub preview style theme settings with defaults', async () => {
+    const { security } = await loadSecurity();
+    expect(security.getGithubMarkdownStyleSettings(true)).toEqual({
+      enabled: true,
+      colorMode: 'auto',
+      lightTheme: 'light',
+      darkTheme: 'dark'
+    });
+  });
+
+  it('reads configured GitHub preview style theme settings', async () => {
+    const { security } = await loadSecurity({
+      githubStyleColorTheme: 'light',
+      githubStyleLightTheme: 'light_high_contrast',
+      githubStyleDarkTheme: 'dark_dimmed'
+    });
+    expect(security.getGithubMarkdownStyleSettings(true)).toEqual({
+      enabled: true,
+      colorMode: 'light',
+      lightTheme: 'light_high_contrast',
+      darkTheme: 'dark_dimmed'
+    });
+  });
+
+  it('loads installed GitHub preview styles before user custom CSS', async () => {
+    const workspaceRoot = await makeTempDir();
+    const extensionPath = await makeTempDir();
+    const globalPath = path.join(workspaceRoot, 'global.css');
+    const workspaceCssPath = path.join(workspaceRoot, 'styles', 'preview.css');
+    const githubBasePath = path.join(extensionPath, 'dist', 'github-base.css');
+    const githubThemePath = path.join(
+      extensionPath,
+      'dist',
+      'github-theme.css'
+    );
+    await fs.mkdir(path.dirname(workspaceCssPath), { recursive: true });
+    await fs.mkdir(path.dirname(githubBasePath), { recursive: true });
+    await fs.writeFile(
+      githubBasePath,
+      '.markdown-body { color: black; }',
+      'utf8'
+    );
+    await fs.writeFile(
+      githubThemePath,
+      '.markdown-body h1 { color: blue; }',
+      'utf8'
+    );
+    await fs.writeFile(globalPath, 'body { color: red; }', 'utf8');
+    await fs.writeFile(workspaceCssPath, 'body { color: green; }', 'utf8');
+
+    const { security, vscodeMock, warnings } = await loadSecurity({
+      workspaceRoot,
+      useMarkdownPreviewGithubStyling: true,
+      githubMarkdownExtension: {
+        extensionPath,
+        previewStyles: ['dist/github-base.css', 'dist/github-theme.css']
+      },
+      globalCustomCssPath: globalPath,
+      workspaceCustomCssPath: 'styles/preview.css'
+    });
+    const result = await security.resolveCustomCss(
+      vscodeMock.Uri.file(path.join(workspaceRoot, 'doc.md'))
+    );
+
+    expect(result.cssTexts).toEqual([
+      '.markdown-body { color: black; }',
+      '.markdown-body h1 { color: blue; }',
+      'body { color: red; }',
+      'body { color: green; }'
+    ]);
+    expect(warnings).toEqual([]);
+  });
+
+  it('warns when installed GitHub preview styling is enabled but the extension is missing', async () => {
+    const workspaceRoot = await makeTempDir();
+    const { security, vscodeMock, warnings } = await loadSecurity({
+      workspaceRoot,
+      useMarkdownPreviewGithubStyling: true
+    });
+    const result = await security.resolveCustomCss(
+      vscodeMock.Uri.file(path.join(workspaceRoot, 'doc.md'))
+    );
+
+    expect(result.cssTexts).toEqual([]);
+    expect(warnings).toEqual([
+      'GitHub Markdown styling is enabled, but bierner.markdown-preview-github-styles is not installed.'
+    ]);
+  });
+
+  it('ignores non-css and missing contributed GitHub preview style paths', async () => {
+    const workspaceRoot = await makeTempDir();
+    const extensionPath = await makeTempDir();
+    const githubCssPath = path.join(extensionPath, 'dist', 'github-base.css');
+    await fs.mkdir(path.dirname(githubCssPath), { recursive: true });
+    await fs.writeFile(
+      githubCssPath,
+      '.markdown-body { color: black; }',
+      'utf8'
+    );
+
+    const { security, vscodeMock, warnings } = await loadSecurity({
+      workspaceRoot,
+      useMarkdownPreviewGithubStyling: true,
+      githubMarkdownExtension: {
+        extensionPath,
+        previewStyles: [
+          'dist/github-base.css',
+          'dist/missing.css',
+          'dist/not-css.txt',
+          42
+        ]
+      }
+    });
+    const result = await security.resolveCustomCss(
+      vscodeMock.Uri.file(path.join(workspaceRoot, 'doc.md'))
+    );
+
+    expect(result.cssTexts).toEqual(['.markdown-body { color: black; }']);
+    expect(warnings).toEqual([
+      'Could not read one or more CSS files from bierner.markdown-preview-github-styles.'
+    ]);
   });
 
   it('loads global CSS from an absolute .css path', async () => {
@@ -418,6 +606,47 @@ describe('security helpers', () => {
     expect(first.key).not.toBe(second.key);
     expect(first.cssTexts).toEqual(['body { color: red; }']);
     expect(second.cssTexts).toEqual(['body { color: blue; }']);
+  });
+
+  it('changes the custom CSS key when installed GitHub preview style contents change', async () => {
+    const workspaceRoot = await makeTempDir();
+    const extensionPath = await makeTempDir();
+    const githubCssPath = path.join(extensionPath, 'dist', 'github-base.css');
+
+    const { security, vscodeMock } = await loadSecurity({
+      workspaceRoot,
+      useMarkdownPreviewGithubStyling: true,
+      githubMarkdownExtension: {
+        extensionPath,
+        previewStyles: ['dist/github-base.css']
+      },
+      openTextDocuments: [
+        { fsPath: githubCssPath, text: '.markdown-body { color: red; }' }
+      ]
+    });
+    const first = await security.resolveCustomCss(
+      vscodeMock.Uri.file(path.join(workspaceRoot, 'doc.md'))
+    );
+
+    const { security: updatedSecurity, vscodeMock: updatedVscodeMock } =
+      await loadSecurity({
+        workspaceRoot,
+        useMarkdownPreviewGithubStyling: true,
+        githubMarkdownExtension: {
+          extensionPath,
+          previewStyles: ['dist/github-base.css']
+        },
+        openTextDocuments: [
+          { fsPath: githubCssPath, text: '.markdown-body { color: blue; }' }
+        ]
+      });
+    const second = await updatedSecurity.resolveCustomCss(
+      updatedVscodeMock.Uri.file(path.join(workspaceRoot, 'doc.md'))
+    );
+
+    expect(first.key).not.toBe(second.key);
+    expect(first.cssTexts).toEqual(['.markdown-body { color: red; }']);
+    expect(second.cssTexts).toEqual(['.markdown-body { color: blue; }']);
   });
 
   it('changes the custom CSS key when a missing file later appears', async () => {
