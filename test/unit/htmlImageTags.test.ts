@@ -86,4 +86,36 @@ describe('htmlImageTags', () => {
       }
     ]);
   });
+
+  it('preserves commas inside absolute http srcset URLs', () => {
+    const srcset =
+      'https://cdn.example.com/demo,retina.gif 2x, https://cdn.example.com/demo@3x.gif 3x';
+
+    expect(parseHtmlSrcset(srcset)).toEqual([
+      {
+        url: 'https://cdn.example.com/demo,retina.gif',
+        descriptor: '2x'
+      },
+      {
+        url: 'https://cdn.example.com/demo@3x.gif',
+        descriptor: '3x'
+      }
+    ]);
+  });
+
+  it('preserves commas inside file srcset URLs', () => {
+    const srcset =
+      'file:///tmp/demo,retina.gif 2x, file:///tmp/demo@3x.gif 3x';
+
+    expect(parseHtmlSrcset(srcset)).toEqual([
+      {
+        url: 'file:///tmp/demo,retina.gif',
+        descriptor: '2x'
+      },
+      {
+        url: 'file:///tmp/demo@3x.gif',
+        descriptor: '3x'
+      }
+    ]);
+  });
 });

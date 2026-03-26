@@ -223,6 +223,11 @@ function findImplicitSrcsetCandidateSplit(
     return -1;
   }
 
+  const normalizedUrl = url.trim();
+  const requiresAbsoluteRightCandidate = /^(?:https?:|file:)/i.test(
+    normalizedUrl
+  );
+
   for (let index = 0; index < url.length; index += 1) {
     if (url[index] !== ',') {
       continue;
@@ -235,6 +240,12 @@ function findImplicitSrcsetCandidateSplit(
       looksLikeStandaloneSrcsetUrl(left) &&
       looksLikeStandaloneSrcsetUrl(rightSegment)
     ) {
+      if (
+        requiresAbsoluteRightCandidate &&
+        !/^(?:https?:|file:)/i.test(rightSegment.trim())
+      ) {
+        continue;
+      }
       return index;
     }
   }
