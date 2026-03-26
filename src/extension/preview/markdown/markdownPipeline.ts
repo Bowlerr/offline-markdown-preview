@@ -107,7 +107,7 @@ function parseHtmlImgTag(tag: string): {
   const body = tag.replace(/^<img\b/i, '').replace(/\s*\/?>$/, '');
   const attributes: HtmlAttribute[] = [];
   const attrPattern =
-    /([^\s"'=<>`\/]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+)))?/g;
+    /([^\s"'=<>`/]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+)))?/g;
 
   for (const match of body.matchAll(attrPattern)) {
     const name = match[1];
@@ -221,6 +221,15 @@ function rewriteRawHtmlImages(
   return html.replace(/<img\b[^>]*>/gi, (tag) => {
     const parsed = parseHtmlImgTag(tag);
     if (!parsed) {
+      return tag;
+    }
+
+    if (
+      getHtmlAttribute(parsed.attributes, 'data-local-src') ||
+      getHtmlAttribute(parsed.attributes, 'data-remote-src') ||
+      getHtmlAttribute(parsed.attributes, 'data-image-blocked') ||
+      getHtmlAttribute(parsed.attributes, 'data-max-mb')
+    ) {
       return tag;
     }
 

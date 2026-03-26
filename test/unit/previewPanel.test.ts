@@ -630,6 +630,25 @@ describe('PreviewController custom CSS', () => {
     );
   });
 
+  it('rewrites local image sources for export regardless of attribute order', async () => {
+    const { module } = await loadPreviewPanelTestModule({
+      workspaceFolderPaths: ['/workspace-a']
+    });
+
+    const controller = new module.PreviewController({
+      extensionUri: Uri.file('/extension'),
+      globalStorageUri: Uri.file('/global-storage')
+    } as any);
+
+    const html = (controller as any).rewriteLocalImageSourcesForExport(
+      '<p><img src="vscode-webview://file:///workspace-a/images/demo.gif" alt="demo" data-local-src="file:///workspace-a/images/demo.gif" /></p>'
+    );
+
+    expect(html).toContain(
+      '<img src="file:///workspace-a/images/demo.gif" alt="demo" data-local-src="file:///workspace-a/images/demo.gif" />'
+    );
+  });
+
   it('hydrates new webviews with the saved preview UI toggle state', async () => {
     const { globalState, module } = await loadPreviewPanelTestModule({
       workspaceFolderPaths: ['/workspace-a'],

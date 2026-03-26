@@ -33,7 +33,10 @@ describe('markdownPipeline', () => {
     expect(result.toc[0]).toMatchObject({ id: 'title', text: 'Title' });
     expect(result.html).toContain('omv-mermaid');
     expect(result.html).toContain('data-math=');
-    expect(result.html).toContain('data-local-src=');
+    expect(result.html).toContain('data-local-src="file:///workspace/docs/pic.png"');
+    expect(result.html).toContain(
+      'src="vscode-webview://file:///workspace/docs/pic.png"'
+    );
     expect(result.html).toContain('task-list-item');
     expect(result.html).toContain('<dl>');
     expect(result.html).toContain('footnote');

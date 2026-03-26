@@ -72,6 +72,38 @@ interface CustomCssCommandChoice {
   value?: boolean;
 }
 
+function escapeHtmlAttribute(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/"/g, '&quot;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
+function readImgAttribute(tag: string, name: string): string | undefined {
+  const pattern = new RegExp(
+    `\\b${name}\\s*=\\s*(?:"([^"]*)"|'([^']*)'|([^\\s"'=<>\\\`]+))`,
+    'i'
+  );
+  const match = pattern.exec(tag);
+  return match?.[1] ?? match?.[2] ?? match?.[3];
+}
+
+function replaceImgAttribute(
+  tag: string,
+  name: string,
+  value: string
+): string {
+  const pattern = new RegExp(
+    `(\\b${name}\\s*=\\s*)(?:"[^"]*"|'[^']*'|[^\\s"'=<>\\\`]+)`,
+    'i'
+  );
+  return tag.replace(
+    pattern,
+    `$1"${escapeHtmlAttribute(value)}"`
+  );
+}
+
 function getSettings(resource?: vscode.Uri): RuntimeSettings {
   const cfg = vscode.workspace.getConfiguration(
     'offlineMarkdownViewer',
@@ -1749,34 +1781,31 @@ export class PreviewController implements vscode.Disposable {
     html: string,
     maxImageMB: number
   ): Promise<string> {
-    const matches = [
-      ...html.matchAll(
-        /<img[^>]*data-local-src="([^"]+)"[^>]*src="([^"]*)"[^>]*>/g
-      )
-    ];
+    const tags = [...html.matchAll(/<img\b[^>]*>/gi)];
     let next = html;
-    for (const match of matches) {
-      const localUri = vscode.Uri.parse(match[1], true);
+    for (const [tag] of tags) {
+      const localSrc = readImgAttribute(tag, 'data-local-src');
+      const currentSrc = readImgAttribute(tag, 'src');
+      if (!localSrc || !currentSrc) continue;
+      const localUri = vscode.Uri.parse(localSrc, true);
       const bytes = await fileSizeBytes(localUri).catch(() => 0);
       if (bytes <= 0 || bytes > maxImageMB * 1024 * 1024) continue;
       const dataUri = await toDataUri(localUri).catch(() => undefined);
       if (!dataUri) continue;
-      next = next.replace(match[2], dataUri);
+      next = next.replace(tag, replaceImgAttribute(tag, 'src', dataUri));
     }
     return next;
   }
 
   private rewriteLocalImageSourcesForExport(html: string): string {
-    return html.replace(
-      /(<img[^>]*data-local-src="([^"]+)"[^>]*src=")([^"]*)(")/g,
-      (
-        _match,
-        prefix: string,
-        localSrc: string,
-        _currentSrc: string,
-        suffix: string
-      ) => `${prefix}${localSrc}${suffix}`
-    );
+    return html.replace(/<img\b[^>]*>/gi, (tag) => {
+      const localSrc = readImgAttribute(tag, 'data-local-src');
+      const currentSrc = readImgAttribute(tag, 'src');
+      if (!localSrc || !currentSrc) {
+        return tag;
+      }
+      return replaceImgAttribute(tag, 'src', localSrc);
+    });
   }
 
   private async tryHeadlessPdfExport(
