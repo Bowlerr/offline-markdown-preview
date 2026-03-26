@@ -190,6 +190,7 @@ function rewriteImageAttributes(
       'src',
       options.webview.asWebviewUri(override).toString()
     );
+    rewriteSrcsetAttribute(attributes, options);
   } else if (resolved) {
     setHtmlAttribute(attributes, 'data-local-src', resolved.toString());
     try {
@@ -204,6 +205,7 @@ function rewriteImageAttributes(
         setHtmlAttribute(attributes, 'data-image-blocked', 'size-limit');
         setHtmlAttribute(attributes, 'src', '');
         setHtmlAttribute(attributes, 'data-max-mb', String(options.maxImageMB));
+        rewriteSrcsetAttribute(attributes, options);
       } else {
         setHtmlAttribute(
           attributes,
@@ -225,6 +227,7 @@ function rewriteImageAttributes(
     setHtmlAttribute(attributes, 'data-remote-src', rawSrc);
     setHtmlAttribute(attributes, 'data-image-blocked', 'remote-disabled');
     setHtmlAttribute(attributes, 'src', '');
+    setHtmlAttribute(attributes, 'srcset', '');
   }
 
   setHtmlAttribute(attributes, 'loading', 'lazy');

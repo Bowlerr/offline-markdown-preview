@@ -220,19 +220,26 @@ describe('markdownPipeline', () => {
       }
     };
 
-    const result = renderMarkdown('<img src="images/scroll.gif" alt="demo" />', {
-      sourceUri,
-      webview: webview as any,
-      allowHtml: true,
-      allowRemoteImages: false,
-      maxImageMB: 100
-    });
+    const result = renderMarkdown(
+      '<img src="images/scroll.gif" alt="demo" srcset="images/scroll.gif 1x, images/scroll@2x.gif 2x" />',
+      {
+        sourceUri,
+        webview: webview as any,
+        allowHtml: true,
+        allowRemoteImages: false,
+        maxImageMB: 100
+      }
+    );
 
     expect(result.html).toContain(
       'data-local-src="file:///workspace/docs/images/scroll.gif"'
     );
     expect(result.html).toContain('data-image-blocked="size-limit"');
     expect(result.html).toContain('src=""');
+    expect(result.html).toContain('srcset=""');
+    expect(result.html).toContain(
+      'data-export-srcset="file:///workspace/docs/images/scroll.gif 1x, file:///workspace/docs/images/scroll@2x.gif 2x"'
+    );
   });
 
   it('rewrites raw HTML srcset candidates and preserves export srcset', () => {
@@ -286,6 +293,68 @@ describe('markdownPipeline', () => {
     );
     expect(result.html).toContain('alt="AT&amp;T"');
     expect(result.html).not.toContain('&amp;amp;');
+  });
+
+  it('clears remote raw HTML srcset when remote images are disabled', () => {
+    const sourceUri = Uri.file('/workspace/docs/readme.md');
+    const webview = {
+      asWebviewUri(uri: { toString(): string }) {
+        return { toString: () => `vscode-webview://${uri.toString()}` };
+      }
+    };
+
+    const result = renderMarkdown(
+      '<img src="https://example.com/image.gif" srcset="https://example.com/image.gif 1x, https://example.com/image@2x.gif 2x" />',
+      {
+        sourceUri,
+        webview: webview as any,
+        allowHtml: true,
+        allowRemoteImages: false,
+        maxImageMB: 100
+      }
+    );
+
+    expect(result.html).toContain(
+      'data-remote-src="https://example.com/image.gif"'
+    );
+    expect(result.html).toContain('src=""');
+    expect(result.html).toContain('srcset=""');
+    expect(result.html).not.toContain('https://example.com/image@2x.gif');
+  });
+
+  it('rewrites raw HTML srcset when a remote image override exists', () => {
+    const sourceUri = Uri.file('/workspace/docs/readme.md');
+    const cachedUri = Uri.file('/workspace/.omv-cache/image.gif');
+    const webview = {
+      asWebviewUri(uri: { toString(): string }) {
+        return { toString: () => `vscode-webview://${uri.toString()}` };
+      }
+    };
+
+    const result = renderMarkdown(
+      '<img src="https://example.com/image.gif" srcset="https://example.com/image.gif 1x, https://example.com/image@2x.gif 2x" />',
+      {
+        sourceUri,
+        webview: webview as any,
+        allowHtml: true,
+        allowRemoteImages: false,
+        remoteImageOverrides: new Map([
+          ['https://example.com/image.gif', cachedUri]
+        ]),
+        maxImageMB: 100
+      }
+    );
+
+    expect(result.html).toContain(
+      'src="vscode-webview://file:///workspace/.omv-cache/image.gif"'
+    );
+    expect(result.html).toContain(
+      'srcset="vscode-webview://file:///workspace/.omv-cache/image.gif 1x"'
+    );
+    expect(result.html).toContain(
+      'data-export-srcset="file:///workspace/.omv-cache/image.gif 1x"'
+    );
+    expect(result.html).not.toContain('https://example.com/image@2x.gif');
   });
 
   it('ignores img-like text inside other HTML attribute values', () => {
