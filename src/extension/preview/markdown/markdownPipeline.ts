@@ -7,6 +7,13 @@ import footnote from 'markdown-it-footnote';
 import taskLists from 'markdown-it-task-lists';
 
 import type { FrontmatterInfo, TocItem } from '../../messaging/protocol';
+import {
+  getHtmlAttribute,
+  mapHtmlImgTags,
+  parseHtmlImgTag,
+  serializeHtmlImgTag,
+  setHtmlAttribute
+} from '../htmlImageTags';
 import { parseFrontmatter } from './frontmatter';
 import { resolveImageUri } from './linkResolver';
 
@@ -28,11 +35,6 @@ export interface MarkdownRenderResult {
   toc: TocItem[];
   frontmatter?: FrontmatterInfo;
   lineCount: number;
-}
-
-interface HtmlAttribute {
-  name: string;
-  value?: string;
 }
 
 function slugify(value: string): string {
@@ -92,78 +94,8 @@ function renderMathPlaceholder(
   return `<span class="${className}"${extraAttrs} data-math="${encodeMathExpression(expr)}"></span>`;
 }
 
-function escapeHtmlAttribute(value: string): string {
-  return value
-    .replace(/&/g, '&amp;')
-    .replace(/"/g, '&quot;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;');
-}
-
-function parseHtmlImgTag(tag: string): {
-  attributes: HtmlAttribute[];
-  selfClosing: boolean;
-} | null {
-  const body = tag.replace(/^<img\b/i, '').replace(/\s*\/?>$/, '');
-  const attributes: HtmlAttribute[] = [];
-  const attrPattern =
-    /([^\s"'=<>`/]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+)))?/g;
-
-  for (const match of body.matchAll(attrPattern)) {
-    const name = match[1];
-    const value = match[2] ?? match[3] ?? match[4];
-    attributes.push(
-      value === undefined ? { name } : { name, value }
-    );
-  }
-
-  return {
-    attributes,
-    selfClosing: /\/\s*>$/.test(tag)
-  };
-}
-
-function serializeHtmlImgTag(
-  attributes: HtmlAttribute[],
-  selfClosing: boolean
-): string {
-  const renderedAttrs = attributes
-    .map((attr) =>
-      attr.value === undefined
-        ? ` ${attr.name}`
-        : ` ${attr.name}="${escapeHtmlAttribute(attr.value)}"`
-    )
-    .join('');
-  return `<img${renderedAttrs}${selfClosing ? ' />' : '>'}`;
-}
-
-function setHtmlAttribute(
-  attributes: HtmlAttribute[],
-  name: string,
-  value: string
-): void {
-  const existing = attributes.find(
-    (attr) => attr.name.toLowerCase() === name.toLowerCase()
-  );
-  if (existing) {
-    existing.name = name;
-    existing.value = value;
-    return;
-  }
-  attributes.push({ name, value });
-}
-
-function getHtmlAttribute(
-  attributes: HtmlAttribute[],
-  name: string
-): HtmlAttribute | undefined {
-  return attributes.find(
-    (attr) => attr.name.toLowerCase() === name.toLowerCase()
-  );
-}
-
 function rewriteImageAttributes(
-  attributes: HtmlAttribute[],
+  attributes: Array<{ name: string; value?: string }>,
   rawSrc: string,
   options: MarkdownRenderOptions
 ): void {
@@ -218,7 +150,7 @@ function rewriteRawHtmlImages(
   html: string,
   options: MarkdownRenderOptions
 ): string {
-  return html.replace(/<img\b[^>]*>/gi, (tag) => {
+  return mapHtmlImgTags(html, (tag) => {
     const parsed = parseHtmlImgTag(tag);
     if (!parsed) {
       return tag;
