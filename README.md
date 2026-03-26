@@ -137,7 +137,7 @@ Preview-local shortcuts (when focus is inside the preview webview):
 - **Sanitization can be disabled** for advanced cases, but this is unsafe for untrusted Markdown/HTML content.
 - **Paths outside the workspace may be blocked** for preview safety when resolving local resources.
 - **Large images are capped** by `offlineMarkdownViewer.preview.maxImageMB` to avoid excessive memory usage in preview.
-- **Custom CSS must be workspace-local** and `.css` only; user/global settings are ignored for safety.
+- **Custom CSS supports two scopes**: `offlineMarkdownViewer.preview.globalCustomCssPath` accepts an explicitly configured absolute `.css` file from user settings, while `offlineMarkdownViewer.preview.customCssPath` accepts only workspace- or folder-local `.css` files. When both are set, workspace or folder CSS is applied after the global stylesheet and takes precedence.
 - **PDF export behavior depends on the VS Code/webview print route** and may vary slightly by platform.
 
 ## Troubleshooting
@@ -146,7 +146,7 @@ Preview-local shortcuts (when focus is inside the preview webview):
 - **Math not rendering**: verify `offlineMarkdownViewer.enableMath` is enabled; invalid expressions render as plain text fallback.
 - **Images missing**: check workspace path restrictions and `offlineMarkdownViewer.preview.maxImageMB` for large local images.
 - **Downloaded remote images not showing**: run **Show Remote Image Cache Usage** and verify cache directories exist/readable, then retry or clear cache.
-- **Custom CSS not applied**: ensure the path is workspace-local, ends with `.css`, and is set in workspace settings (not user settings).
+- **Custom CSS not applied**: ensure `offlineMarkdownViewer.preview.globalCustomCssPath` points to an absolute `.css` file you explicitly opted into in user settings, or `offlineMarkdownViewer.preview.customCssPath` points to a workspace- or folder-local `.css` file. Workspace/folder CSS overrides global CSS on conflicts.
 - **External links are blocked/prompting**: this is expected; review `offlineMarkdownViewer.externalLinks.confirm` and use explicit link opens.
 
 ## Changelog

@@ -7,7 +7,7 @@ You can either set the paths directly in settings JSON or run **Offline Markdown
 The extension supports two layers:
 
 - `offlineMarkdownViewer.preview.globalCustomCssPath`: a user-level stylesheet applied to every preview.
-- `offlineMarkdownViewer.preview.customCssPath`: a workspace-level stylesheet applied after the global stylesheet.
+- `offlineMarkdownViewer.preview.customCssPath`: a workspace- or folder-level stylesheet applied after the global stylesheet.
 
 If both are configured, workspace CSS wins on conflicts because it is injected second.
 
@@ -117,10 +117,10 @@ body {
 
 If your styles do not apply:
 
-- Confirm the path is valid and points to a real `.css` file.
-- Use an absolute path for `offlineMarkdownViewer.preview.globalCustomCssPath`.
-- Use a workspace-relative path for `offlineMarkdownViewer.preview.customCssPath`.
-- Make sure the workspace path does not leave the workspace root.
-- Check whether a workspace stylesheet is overriding the global one.
+- Confirm the path is valid and points to a real `.css` file; non-`.css` files are ignored.
+- Use an absolute path for `offlineMarkdownViewer.preview.globalCustomCssPath`. This is a user-level opt-in for loading a stylesheet from anywhere on your machine.
+- Use a workspace- or folder-relative path for `offlineMarkdownViewer.preview.customCssPath`.
+- Make sure the workspace or folder path does not leave the workspace root.
+- Check whether a workspace or folder stylesheet is overriding the global one, because repo-local CSS is injected after the global stylesheet and wins on conflicts.
 
 If the path is invalid or unreadable, the extension shows a warning and continues rendering the preview without that stylesheet.
