@@ -193,6 +193,78 @@ function isValidSrcsetDescriptorSequence(value: string): boolean {
   return true;
 }
 
+function looksLikeSrcsetUrlStart(value: string): boolean {
+  const match = /^\s*([^,\s]+)/.exec(value);
+  if (!match) {
+    return false;
+  }
+
+  return !/[<>"'=]/.test(match[1]);
+}
+
+function parseDataSrcsetCandidate(
+  value: string,
+  startIndex: number
+): { candidate: HtmlSrcsetCandidate; nextIndex: number } {
+  let index = startIndex;
+
+  while (index < value.length) {
+    while (
+      index < value.length &&
+      value[index] !== ',' &&
+      !/\s/.test(value[index])
+    ) {
+      index += 1;
+    }
+
+    if (index >= value.length) {
+      return {
+        candidate: { url: value.slice(startIndex).trim() },
+        nextIndex: value.length
+      };
+    }
+
+    if (!/\s/.test(value[index])) {
+      index += 1;
+      continue;
+    }
+
+    const descriptorStart = index;
+    while (index < value.length && value[index] !== ',') {
+      index += 1;
+    }
+
+    const descriptor = value.slice(descriptorStart, index).trim();
+    const url = value.slice(startIndex, descriptorStart).trimEnd();
+
+    if (descriptor && isValidSrcsetDescriptorSequence(descriptor)) {
+      return {
+        candidate: { url, descriptor },
+        nextIndex: value[index] === ',' ? index + 1 : index
+      };
+    }
+
+    if (
+      descriptor &&
+      url.endsWith(',') &&
+      looksLikeSrcsetUrlStart(descriptor)
+    ) {
+      const normalizedUrl = url.slice(0, -1);
+      return {
+        candidate: { url: normalizedUrl },
+        nextIndex: startIndex + normalizedUrl.length + 1
+      };
+    }
+
+    index = descriptorStart + 1;
+  }
+
+  return {
+    candidate: { url: value.slice(startIndex).trim() },
+    nextIndex: value.length
+  };
+}
+
 export function parseHtmlSrcset(value: string): HtmlSrcsetCandidate[] {
   const candidates: HtmlSrcsetCandidate[] = [];
   let index = 0;
@@ -207,10 +279,17 @@ export function parseHtmlSrcset(value: string): HtmlSrcsetCandidate[] {
 
     const urlStart = index;
     const isDataUrl = /^data:/i.test(value.slice(index));
+    if (isDataUrl) {
+      const parsed = parseDataSrcsetCandidate(value, urlStart);
+      candidates.push(parsed.candidate);
+      index = parsed.nextIndex;
+      continue;
+    }
+
     while (
       index < value.length &&
       !/\s/.test(value[index]) &&
-      (isDataUrl || value[index] !== ',')
+      value[index] !== ','
     ) {
       index += 1;
     }
@@ -332,8 +411,10 @@ function getLiteralContentTagName(tag: string): string | undefined {
   switch (match[1].toLowerCase()) {
     case 'script':
     case 'style':
+    case 'template':
     case 'textarea':
     case 'title':
+    case 'noscript':
       return match[1];
     default:
       return undefined;
