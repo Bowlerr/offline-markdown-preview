@@ -1,0 +1,284 @@
+import * as path from 'node:path';
+
+import { afterEach, describe, expect, it, vi } from 'vitest';
+
+import { Uri } from './helpers/vscodeMock';
+
+type Listener<T> = (event: T) => void;
+
+class EventEmitter<T> {
+  private listeners: Listener<T>[] = [];
+
+  readonly event = (listener: Listener<T>) => {
+    this.listeners.push(listener);
+    return { dispose() {} };
+  };
+
+  fire(event: T): void {
+    for (const listener of this.listeners) {
+      listener(event);
+    }
+  }
+
+  dispose(): void {
+    this.listeners = [];
+  }
+}
+
+function createEventHook<T>() {
+  const emitter = new EventEmitter<T>();
+  return {
+    fire(event: T): void {
+      emitter.fire(event);
+    },
+    register(listener: Listener<T>) {
+      return emitter.event(listener);
+    }
+  };
+}
+
+function createWorkspaceFolder(fsPath: string) {
+  return {
+    name: path.basename(fsPath),
+    uri: Uri.file(fsPath)
+  };
+}
+
+function createPreviewPanelTestContext(options: {
+  workspaceFolderPaths: string[];
+  activeEditorPath?: string;
+  quickPickLabel?: string;
+  openDialogPath?: string;
+  customCssUris?: InstanceType<typeof Uri>[];
+}) {
+  const workspaceFolders = options.workspaceFolderPaths.map(createWorkspaceFolder);
+  const textDocumentChange = createEventHook<{
+    document: { uri: InstanceType<typeof Uri> };
+  }>();
+  const textDocumentSave = createEventHook<{
+    uri: InstanceType<typeof Uri>;
+  }>();
+  const textDocumentClose = createEventHook<{
+    languageId: string;
+    uri: InstanceType<typeof Uri>;
+  }>();
+  const configurationChange = createEventHook<{
+    affectsConfiguration: (section: string, resource?: InstanceType<typeof Uri>) => boolean;
+  }>();
+  const activeEditorChange = createEventHook<unknown>();
+  const visibleRangesChange = createEventHook<unknown>();
+  const update = vi.fn().mockResolvedValue(undefined);
+  const showInformationMessage = vi.fn().mockResolvedValue(undefined);
+  const showWarningMessage = vi.fn().mockResolvedValue(undefined);
+  const showOpenDialog = vi.fn().mockResolvedValue(
+    options.openDialogPath ? [Uri.file(options.openDialogPath)] : undefined
+  );
+
+  const activeTextEditor = options.activeEditorPath
+    ? {
+        document: {
+          languageId: 'markdown',
+          uri: Uri.file(options.activeEditorPath),
+          lineCount: 1
+        },
+        viewColumn: 1
+      }
+    : undefined;
+
+  const showQuickPick = vi.fn().mockImplementation(async (choices: any[]) => {
+    if (!options.quickPickLabel) {
+      return undefined;
+    }
+    return choices.find((choice) => choice.label === options.quickPickLabel);
+  });
+
+  const workspace = {
+    workspaceFolders,
+    textDocuments: [],
+    getWorkspaceFolder(uri: InstanceType<typeof Uri>) {
+      return workspaceFolders.find((folder) => {
+        const relative = path.relative(folder.uri.fsPath, uri.fsPath);
+        return (
+          relative === '' ||
+          (!relative.startsWith('..') && !path.isAbsolute(relative))
+        );
+      });
+    },
+    getConfiguration: vi.fn(() => ({
+      get<T>(key: string, defaultValue: T): T {
+        if (key === 'preview.autoOpen') {
+          return false as T;
+        }
+        return defaultValue;
+      },
+      inspect<T>() {
+        return {} as {
+          globalValue?: T;
+          workspaceValue?: T;
+          workspaceFolderValue?: T;
+        };
+      },
+      update
+    })),
+    onDidChangeTextDocument: (listener: Listener<{ document: { uri: InstanceType<typeof Uri> } }>) =>
+      textDocumentChange.register(listener),
+    onDidSaveTextDocument: (listener: Listener<{ uri: InstanceType<typeof Uri> }>) =>
+      textDocumentSave.register(listener),
+    onDidCloseTextDocument: (
+      listener: Listener<{ languageId: string; uri: InstanceType<typeof Uri> }>
+    ) => textDocumentClose.register(listener),
+    onDidChangeConfiguration: (
+      listener: Listener<{
+        affectsConfiguration: (
+          section: string,
+          resource?: InstanceType<typeof Uri>
+        ) => boolean;
+      }>
+    ) => configurationChange.register(listener)
+  };
+
+  const vscodeMock = {
+    Uri,
+    workspace,
+    window: {
+      activeTextEditor,
+      showQuickPick,
+      showOpenDialog,
+      showInformationMessage,
+      showWarningMessage,
+      onDidChangeActiveTextEditor: (listener: Listener<unknown>) =>
+        activeEditorChange.register(listener),
+      onDidChangeTextEditorVisibleRanges: (listener: Listener<unknown>) =>
+        visibleRangesChange.register(listener),
+      tabGroups: { all: [], close: vi.fn().mockResolvedValue(undefined) }
+    },
+    EventEmitter,
+    TreeItem: class {},
+    TreeItemCollapsibleState: { None: 0 },
+    ViewColumn: {
+      Active: 1,
+      Beside: 2
+    },
+    ConfigurationTarget: {
+      Global: 1,
+      Workspace: 2,
+      WorkspaceFolder: 3
+    },
+    Position: class {},
+    Selection: class {},
+    Range: class {},
+    TextEditorRevealType: { InCenter: 0, AtTop: 1 },
+    TabInputText: class {},
+    commands: {
+      executeCommand: vi.fn().mockResolvedValue(undefined)
+    },
+    env: {
+      clipboard: { writeText: vi.fn().mockResolvedValue(undefined) },
+      openExternal: vi.fn().mockResolvedValue(undefined)
+    },
+    FileType: {
+      Directory: 2,
+      File: 1,
+      SymbolicLink: 64
+    }
+  };
+
+  const securityMock = {
+    buildWebviewCsp: vi.fn(() => ''),
+    confirmSanitizeDisabled: vi.fn(async () => true),
+    createNonce: vi.fn(() => 'nonce'),
+    getConfiguredCustomCssUris: vi.fn(
+      () => options.customCssUris ?? []
+    ),
+    inlineCssTag: vi.fn(() => ''),
+    resolveCustomCss: vi.fn(async () => ({
+      key: 'custom-css',
+      cssText: undefined
+    }))
+  };
+
+  return {
+    closeTextDocument: textDocumentClose.fire,
+    securityMock,
+    update,
+    vscodeMock
+  };
+}
+
+async function loadPreviewPanelTestModule(
+  options: Parameters<typeof createPreviewPanelTestContext>[0]
+) {
+  vi.resetModules();
+  const context = createPreviewPanelTestContext(options);
+  vi.doMock('vscode', () => context.vscodeMock);
+  vi.doMock('../../src/extension/preview/markdown/security', () => context.securityMock);
+  const module = await import('../../src/extension/preview/PreviewPanel');
+  return { ...context, module };
+}
+
+afterEach(() => {
+  vi.resetModules();
+  vi.doUnmock('vscode');
+  vi.doUnmock('../../src/extension/preview/markdown/security');
+  vi.clearAllMocks();
+});
+
+describe('PreviewController custom CSS', () => {
+  it('writes workspace custom CSS to workspace settings', async () => {
+    const { module, update, vscodeMock } = await loadPreviewPanelTestModule({
+      workspaceFolderPaths: ['/workspace-a', '/workspace-b'],
+      activeEditorPath: '/workspace-a/doc.md',
+      quickPickLabel: 'Set Workspace Custom CSS',
+      openDialogPath: '/workspace-a/styles/preview.css'
+    });
+
+    const controller = new module.PreviewController({
+      extensionUri: Uri.file('/extension'),
+      globalStorageUri: Uri.file('/global-storage')
+    } as any);
+
+    await controller.configureCustomCss();
+
+    expect(update).toHaveBeenCalledWith(
+      'preview.customCssPath',
+      'styles/preview.css',
+      vscodeMock.ConfigurationTarget.Workspace
+    );
+  });
+
+  it('invalidates cached custom CSS when the stylesheet is closed', async () => {
+    const cssUri = Uri.file('/workspace-a/styles/preview.css');
+    const { closeTextDocument, module } = await loadPreviewPanelTestModule({
+      workspaceFolderPaths: ['/workspace-a'],
+      activeEditorPath: '/workspace-a/doc.md',
+      customCssUris: [cssUri]
+    });
+
+    const controller = new module.PreviewController({
+      extensionUri: Uri.file('/extension'),
+      globalStorageUri: Uri.file('/global-storage')
+    } as any);
+
+    const scheduleRender = vi
+      .spyOn(controller as any, 'scheduleRender')
+      .mockImplementation(() => {});
+
+    (controller as any).panel = {};
+    (controller as any).currentEditor = {
+      document: {
+        languageId: 'markdown',
+        uri: Uri.file('/workspace-a/doc.md'),
+        lineCount: 1
+      }
+    };
+    (controller as any).webviewCustomCssDirty = false;
+
+    closeTextDocument({
+      languageId: 'css',
+      uri: cssUri
+    });
+
+    expect((controller as any).webviewCustomCssDirty).toBe(true);
+    expect(scheduleRender).toHaveBeenCalledWith(true);
+  });
+});

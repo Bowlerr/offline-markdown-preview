@@ -51,7 +51,6 @@ interface CustomCssCommandChoice {
   description: string;
   settingKey: 'preview.globalCustomCssPath' | 'preview.customCssPath';
   target: vscode.ConfigurationTarget;
-  documentUri?: vscode.Uri;
   workspaceFolder?: vscode.WorkspaceFolder;
   clear?: boolean;
 }
@@ -234,6 +233,11 @@ export class PreviewController implements vscode.Disposable {
         }
       }),
       vscode.workspace.onDidCloseTextDocument((document) => {
+        if (this.isCurrentCustomCssUri(document.uri)) {
+          this.webviewCustomCssDirty = true;
+          this.scheduleRender(true);
+        }
+
         if (document.languageId !== 'markdown') return;
         if (!this.panel) return;
         const previewUri = this.state.snapshot?.uri.toString();
@@ -545,6 +549,7 @@ export class PreviewController implements vscode.Disposable {
     const workspaceFolder = resource
       ? vscode.workspace.getWorkspaceFolder(resource)
       : undefined;
+    const workspaceFolderCount = vscode.workspace.workspaceFolders?.length ?? 0;
     const cfg = vscode.workspace.getConfiguration(
       'offlineMarkdownViewer',
       resource
@@ -555,46 +560,51 @@ export class PreviewController implements vscode.Disposable {
         label: 'Set Global Custom CSS',
         description: 'Choose a user-level .css file applied to every preview',
         settingKey: 'preview.globalCustomCssPath',
-        target: vscode.ConfigurationTarget.Global,
-        documentUri: resource
+        target: vscode.ConfigurationTarget.Global
       },
       {
         label: 'Clear Global Custom CSS',
         description: 'Remove the user-level stylesheet',
         settingKey: 'preview.globalCustomCssPath',
         target: vscode.ConfigurationTarget.Global,
-        documentUri: resource,
         clear: true
       }
     ];
 
-    if (workspaceFolder) {
+    if (workspaceFolderCount > 0) {
       choices.push(
         {
           label: 'Set Workspace Custom CSS',
-          description: `Choose a workspace .css file for ${workspaceFolder.name}`,
+          description:
+            'Choose a workspace-level .css path applied across the workspace',
           settingKey: 'preview.customCssPath',
-          target: vscode.ConfigurationTarget.WorkspaceFolder,
-          documentUri: resource,
-          workspaceFolder
+          target: vscode.ConfigurationTarget.Workspace
         },
         {
           label: 'Clear Workspace Custom CSS',
-          description: `Remove the workspace stylesheet for ${workspaceFolder.name}`,
+          description: 'Remove the workspace-level stylesheet path',
           settingKey: 'preview.customCssPath',
-          target: vscode.ConfigurationTarget.WorkspaceFolder,
-          documentUri: resource,
-          workspaceFolder,
+          target: vscode.ConfigurationTarget.Workspace,
           clear: true
         }
       );
-    } else if ((vscode.workspace.workspaceFolders?.length ?? 0) > 0) {
+    }
+
+    if (workspaceFolder) {
       choices.push({
-        label: 'Set Workspace Custom CSS',
-        description:
-          'Open a Markdown file inside a workspace folder to configure workspace CSS',
+        label: 'Set Folder Custom CSS',
+        description: `Choose a folder-level .css file for ${workspaceFolder.name}`,
         settingKey: 'preview.customCssPath',
-        target: vscode.ConfigurationTarget.Workspace,
+        target: vscode.ConfigurationTarget.WorkspaceFolder,
+        workspaceFolder
+      });
+      choices.push({
+        label: 'Clear Folder Custom CSS',
+        description:
+          `Remove the folder-level stylesheet for ${workspaceFolder.name}`,
+        settingKey: 'preview.customCssPath',
+        target: vscode.ConfigurationTarget.WorkspaceFolder,
+        workspaceFolder,
         clear: true
       });
     }
@@ -604,9 +614,12 @@ export class PreviewController implements vscode.Disposable {
     });
     if (!picked) return;
 
-    if (!workspaceFolder && picked.settingKey === 'preview.customCssPath') {
+    if (
+      picked.target === vscode.ConfigurationTarget.WorkspaceFolder &&
+      !workspaceFolder
+    ) {
       void vscode.window.showInformationMessage(
-        'Open a Markdown file inside a workspace folder to configure workspace custom CSS.'
+        'Open a Markdown file inside a workspace folder to configure folder custom CSS.'
       );
       return;
     }
@@ -616,15 +629,19 @@ export class PreviewController implements vscode.Disposable {
       void vscode.window.showInformationMessage(
         picked.settingKey === 'preview.globalCustomCssPath'
           ? 'Cleared global custom CSS.'
-          : 'Cleared workspace custom CSS.'
+          : picked.target === vscode.ConfigurationTarget.Workspace
+            ? 'Cleared workspace custom CSS.'
+            : 'Cleared folder custom CSS.'
       );
       return;
     }
 
+    const defaultWorkspaceUri =
+      picked.workspaceFolder?.uri ?? workspaceFolder?.uri ?? resource;
     const defaultUri =
       picked.settingKey === 'preview.globalCustomCssPath'
         ? resource
-        : picked.workspaceFolder?.uri;
+        : defaultWorkspaceUri;
     const selection = await vscode.window.showOpenDialog(
       getCssFilePickerOptions(defaultUri)
     );
@@ -650,10 +667,13 @@ export class PreviewController implements vscode.Disposable {
       return;
     }
 
-    const folder = picked.workspaceFolder;
+    const folder =
+      picked.target === vscode.ConfigurationTarget.Workspace
+        ? vscode.workspace.getWorkspaceFolder(cssUri)
+        : picked.workspaceFolder;
     if (!folder) {
       void vscode.window.showInformationMessage(
-        'Open a Markdown file inside a workspace folder to configure workspace custom CSS.'
+        'Select a .css file inside a workspace folder to configure workspace custom CSS.'
       );
       return;
     }
@@ -673,10 +693,14 @@ export class PreviewController implements vscode.Disposable {
     await cfg.update(
       picked.settingKey,
       relative.split(path.sep).join('/'),
-      vscode.ConfigurationTarget.WorkspaceFolder
+      picked.target
     );
     void vscode.window.showInformationMessage(
-      `Workspace custom CSS set to ${relative}`
+      `${
+        picked.target === vscode.ConfigurationTarget.Workspace
+          ? 'Workspace'
+          : 'Folder'
+      } custom CSS set to ${relative}`
     );
   }
 
