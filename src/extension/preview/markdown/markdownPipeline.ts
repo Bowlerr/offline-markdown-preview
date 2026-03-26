@@ -99,14 +99,26 @@ function renderMathPlaceholder(
 function rewriteSrcsetAttribute(
   attributes: Array<{ name: string; value?: string }>,
   options: MarkdownRenderOptions
-): void {
+): {
+  previewCandidates: Array<{ url: string; descriptor?: string }>;
+  blockedRemoteCandidates: Array<{ url: string; descriptor?: string }>;
+  blockedBySizeLimit: boolean;
+  changed: boolean;
+} {
   const srcset = getHtmlAttribute(attributes, 'srcset')?.value;
   if (!srcset) {
-    return;
+    return {
+      previewCandidates: [],
+      blockedRemoteCandidates: [],
+      blockedBySizeLimit: false,
+      changed: false
+    };
   }
 
   const previewCandidates = [];
   const exportCandidates = [];
+  const blockedRemoteCandidates = [];
+  let blockedBySizeLimit = false;
   let changed = false;
 
   for (const candidate of parseHtmlSrcset(srcset)) {
@@ -135,6 +147,7 @@ function rewriteSrcsetAttribute(
       try {
         const bytes = statSync(resolved.fsPath).size;
         if (bytes > options.maxImageMB * 1024 * 1024) {
+          blockedBySizeLimit = true;
           changed = true;
           continue;
         }
@@ -152,6 +165,7 @@ function rewriteSrcsetAttribute(
 
     if (/^https?:\/\//i.test(candidate.url) && !options.allowRemoteImages) {
       exportCandidates.push(candidate);
+      blockedRemoteCandidates.push(candidate);
       changed = true;
       continue;
     }
@@ -161,7 +175,12 @@ function rewriteSrcsetAttribute(
   }
 
   if (!changed) {
-    return;
+    return {
+      previewCandidates,
+      blockedRemoteCandidates,
+      blockedBySizeLimit,
+      changed
+    };
   }
 
   setHtmlAttribute(
@@ -174,6 +193,12 @@ function rewriteSrcsetAttribute(
     'srcset',
     serializeHtmlSrcset(previewCandidates)
   );
+  return {
+    previewCandidates,
+    blockedRemoteCandidates,
+    blockedBySizeLimit,
+    changed
+  };
 }
 
 function rewriteImageAttributes(
@@ -227,12 +252,11 @@ function rewriteImageAttributes(
     setHtmlAttribute(attributes, 'data-image-blocked', 'remote-disabled');
   }
 
-  rewriteSrcsetAttribute(attributes, options);
+  const srcsetRewrite = rewriteSrcsetAttribute(attributes, options);
 
   if (blockedRemoteImage) {
-    const previewSrcset = getHtmlAttribute(attributes, 'srcset')?.value;
-    if (previewSrcset) {
-      const previewSrc = parseHtmlSrcset(previewSrcset)[0]?.url;
+    if (srcsetRewrite.previewCandidates.length > 0) {
+      const previewSrc = srcsetRewrite.previewCandidates[0]?.url;
       setHtmlAttribute(attributes, 'src', previewSrc ?? '');
     } else {
       setHtmlAttribute(attributes, 'srcset', '');
@@ -260,7 +284,6 @@ function rewriteRawHtmlImages(
       getHtmlAttribute(parsed.attributes, 'data-local-src') ||
       getHtmlAttribute(parsed.attributes, 'data-remote-src') ||
       getHtmlAttribute(parsed.attributes, 'data-image-blocked') ||
-      getHtmlAttribute(parsed.attributes, 'data-max-mb') ||
       getHtmlAttribute(parsed.attributes, 'data-export-srcset')
     ) {
       return tag;
@@ -275,7 +298,34 @@ function rewriteRawHtmlImages(
     if (src) {
       rewriteImageAttributes(parsed.attributes, src, options);
     } else {
-      rewriteSrcsetAttribute(parsed.attributes, options);
+      const srcsetRewrite = rewriteSrcsetAttribute(parsed.attributes, options);
+      if (
+        srcsetRewrite.changed &&
+        srcsetRewrite.previewCandidates.length === 0
+      ) {
+        if (srcsetRewrite.blockedRemoteCandidates.length > 0) {
+          setHtmlAttribute(
+            parsed.attributes,
+            'data-remote-src',
+            srcsetRewrite.blockedRemoteCandidates[0].url
+          );
+          setHtmlAttribute(
+            parsed.attributes,
+            'data-image-blocked',
+            'remote-disabled'
+          );
+          setHtmlAttribute(parsed.attributes, 'src', '');
+        } else if (srcsetRewrite.blockedBySizeLimit) {
+          const alt = getHtmlAttribute(parsed.attributes, 'alt')?.value ?? 'image';
+          setHtmlAttribute(
+            parsed.attributes,
+            'alt',
+            `${alt} (blocked: exceeds preview.maxImageMB)`
+          );
+          setHtmlAttribute(parsed.attributes, 'data-image-blocked', 'size-limit');
+          setHtmlAttribute(parsed.attributes, 'src', '');
+        }
+      }
       setHtmlAttribute(parsed.attributes, 'loading', 'lazy');
       setHtmlAttribute(parsed.attributes, 'decoding', 'async');
       setHtmlAttribute(parsed.attributes, 'referrerpolicy', 'no-referrer');

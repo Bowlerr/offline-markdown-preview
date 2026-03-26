@@ -238,6 +238,33 @@ describe('markdownPipeline', () => {
     );
   });
 
+  it('rewrites raw HTML img tags even when authors define data-max-mb', () => {
+    const sourceUri = Uri.file('/workspace/docs/readme.md');
+    const webview = {
+      asWebviewUri(uri: { toString(): string }) {
+        return { toString: () => `vscode-webview://${uri.toString()}` };
+      }
+    };
+
+    const result = renderMarkdown(
+      '<img src="images/scroll.gif" data-max-mb="1" alt="demo" />',
+      {
+        sourceUri,
+        webview: webview as any,
+        allowHtml: true,
+        allowRemoteImages: false,
+        maxImageMB: 100
+      }
+    );
+
+    expect(result.html).toContain(
+      'src="vscode-webview://file:///workspace/docs/images/scroll.gif"'
+    );
+    expect(result.html).toContain(
+      'data-local-src="file:///workspace/docs/images/scroll.gif"'
+    );
+  });
+
   it('preserves local export metadata for size-blocked raw HTML images', () => {
     statSyncMock.mockReturnValue({ size: 101 * 1024 * 1024 });
 
@@ -345,6 +372,36 @@ describe('markdownPipeline', () => {
     expect(result.html).toContain(
       'data-remote-src="https://example.com/image.gif"'
     );
+    expect(result.html).toContain('src=""');
+    expect(result.html).toContain('srcset=""');
+    expect(result.html).toContain(
+      'data-export-srcset="https://example.com/image.gif 1x, https://example.com/image@2x.gif 2x"'
+    );
+  });
+
+  it('marks srcset-only remote raw HTML images as blocked when no preview source remains', () => {
+    const sourceUri = Uri.file('/workspace/docs/readme.md');
+    const webview = {
+      asWebviewUri(uri: { toString(): string }) {
+        return { toString: () => `vscode-webview://${uri.toString()}` };
+      }
+    };
+
+    const result = renderMarkdown(
+      '<img srcset="https://example.com/image.gif 1x, https://example.com/image@2x.gif 2x" alt="demo" />',
+      {
+        sourceUri,
+        webview: webview as any,
+        allowHtml: true,
+        allowRemoteImages: false,
+        maxImageMB: 100
+      }
+    );
+
+    expect(result.html).toContain(
+      'data-remote-src="https://example.com/image.gif"'
+    );
+    expect(result.html).toContain('data-image-blocked="remote-disabled"');
     expect(result.html).toContain('src=""');
     expect(result.html).toContain('srcset=""');
     expect(result.html).toContain(
@@ -527,6 +584,38 @@ describe('markdownPipeline', () => {
     );
     expect(result.html).toContain(
       'data-export-srcset="file:///workspace/docs/images/scroll.gif 1x, https://cdn.example.com/scroll@2x.gif 2x"'
+    );
+  });
+
+  it('marks srcset-only local raw HTML images as blocked when size filtering removes every candidate', () => {
+    statSyncMock.mockReturnValue({ size: 101 * 1024 * 1024 });
+
+    const sourceUri = Uri.file('/workspace/docs/readme.md');
+    const webview = {
+      asWebviewUri(uri: { toString(): string }) {
+        return { toString: () => `vscode-webview://${uri.toString()}` };
+      }
+    };
+
+    const result = renderMarkdown(
+      '<img srcset="images/scroll.gif 1x, images/scroll@2x.gif 2x" alt="demo" />',
+      {
+        sourceUri,
+        webview: webview as any,
+        allowHtml: true,
+        allowRemoteImages: false,
+        maxImageMB: 100
+      }
+    );
+
+    expect(result.html).toContain(
+      'alt="demo (blocked: exceeds preview.maxImageMB)"'
+    );
+    expect(result.html).toContain('data-image-blocked="size-limit"');
+    expect(result.html).toContain('src=""');
+    expect(result.html).toContain('srcset=""');
+    expect(result.html).toContain(
+      'data-export-srcset="file:///workspace/docs/images/scroll.gif 1x, file:///workspace/docs/images/scroll@2x.gif 2x"'
     );
   });
 
