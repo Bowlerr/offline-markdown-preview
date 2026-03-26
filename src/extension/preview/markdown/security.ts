@@ -242,7 +242,11 @@ export async function confirmSanitizeDisabled(
   return answer === 'Continue';
 }
 
-export function inlineCssTag(cssText: string, nonce: string): string {
+export function inlineCssTag(
+  cssText: string,
+  nonce: string,
+  attributes = ''
+): string {
   const safeCss = cssText.replace(/<\/style/gi, '<\\/style');
-  return `<style nonce="${nonce}">\n${safeCss}\n</style>`;
+  return `<style nonce="${nonce}"${attributes}>\n${safeCss}\n</style>`;
 }

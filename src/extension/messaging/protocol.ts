@@ -59,13 +59,19 @@ export interface RequestHtmlExportSnapshotPayload {
   requestId: number;
 }
 
+export interface UpdateCustomCssPayload {
+  type: 'updateCustomCss';
+  cssText?: string;
+}
+
 export type ExtensionToWebviewMessage =
   | RenderPayload
   | EditorScrollPayload
   | NotifyPayload
   | SearchCommandPayload
   | ExportPdfPayload
-  | RequestHtmlExportSnapshotPayload;
+  | RequestHtmlExportSnapshotPayload
+  | UpdateCustomCssPayload;
 
 export interface WebviewReadyMessage {
   type: 'ready';

@@ -76,6 +76,10 @@ const extSchema = z.discriminatedUnion('type', [
   z.object({
     type: z.literal('requestHtmlExportSnapshot'),
     requestId: z.number().int().nonnegative()
+  }),
+  z.object({
+    type: z.literal('updateCustomCss'),
+    cssText: z.string().optional()
   })
 ]);
 

@@ -145,7 +145,9 @@ export class PreviewController implements vscode.Disposable {
   private preferredMarkdownColumn: vscode.ViewColumn | undefined;
   private lastPreviewColumn: vscode.ViewColumn | undefined;
   private webviewAllowsRemoteImages: boolean | undefined;
+  private webviewCustomCssDirty = true;
   private webviewCustomCssKey: string | undefined;
+  private webviewCustomCssText: string | undefined;
   private readonly remoteImageOverrides = new Map<string, vscode.Uri>();
   private htmlExportSnapshotReqId = 0;
   private pendingHtmlExportSnapshot:
@@ -177,11 +179,13 @@ export class PreviewController implements vscode.Disposable {
         }
 
         if (this.isCurrentCustomCssUri(e.document.uri)) {
+          this.webviewCustomCssDirty = true;
           this.scheduleRender(true);
         }
       }),
       vscode.workspace.onDidSaveTextDocument((document) => {
         if (this.isCurrentCustomCssUri(document.uri)) {
+          this.webviewCustomCssDirty = true;
           this.scheduleRender(true);
         }
       }),
@@ -207,6 +211,7 @@ export class PreviewController implements vscode.Disposable {
           }
 
           this.currentEditor = editor;
+          this.webviewCustomCssDirty = true;
           if (editorColumn && editorColumn !== previewColumn) {
             this.preferredMarkdownColumn = editorColumn;
           }
@@ -268,6 +273,18 @@ export class PreviewController implements vscode.Disposable {
         if (e.affectsConfiguration('offlineMarkdownViewer')) {
           if (
             this.currentEditor &&
+            (e.affectsConfiguration(
+              'offlineMarkdownViewer.preview.globalCustomCssPath'
+            ) ||
+              e.affectsConfiguration(
+                'offlineMarkdownViewer.preview.customCssPath',
+                this.currentEditor.document.uri
+              ))
+          ) {
+            this.webviewCustomCssDirty = true;
+          }
+          if (
+            this.currentEditor &&
             this.currentEditor.document.languageId === 'markdown' &&
             e.affectsConfiguration('offlineMarkdownViewer.preview.autoOpen')
           ) {
@@ -304,6 +321,7 @@ export class PreviewController implements vscode.Disposable {
 
     this.currentEditor = editor;
     this.followActiveMarkdownBeside = sideBySide;
+    this.webviewCustomCssDirty = true;
 
     if (this.panel) {
       try {
@@ -348,7 +366,9 @@ export class PreviewController implements vscode.Disposable {
       customCss.cssText
     );
     this.webviewAllowsRemoteImages = settings.allowRemoteImages;
+    this.webviewCustomCssDirty = false;
     this.webviewCustomCssKey = customCss.key;
+    this.webviewCustomCssText = customCss.cssText;
     this.disposables.push(
       this.panel,
       this.panel.onDidDispose(() => {
@@ -356,7 +376,9 @@ export class PreviewController implements vscode.Disposable {
           this.panel?.viewColumn ?? this.lastPreviewColumn;
         this.panel = undefined;
         this.webviewAllowsRemoteImages = undefined;
+        this.webviewCustomCssDirty = true;
         this.webviewCustomCssKey = undefined;
+        this.webviewCustomCssText = undefined;
         this.remoteImageOverrides.clear();
       }),
       this.panel.onDidChangeViewState((event) => {
@@ -874,7 +896,9 @@ export class PreviewController implements vscode.Disposable {
     if (!panel || !editor || editor.document.languageId !== 'markdown') return;
 
     const settings = getSettings(editor.document.uri);
-    await this.refreshWebviewShellIfNeeded(editor.document.uri, settings);
+    if (await this.refreshWebviewShellIfNeeded(editor.document.uri, settings)) {
+      return;
+    }
     if (!settings.sanitizeHtml) {
       if (!this.unsafeHtmlAcknowledged) {
         if (!(await confirmSanitizeDisabled(editor.document.uri))) {
@@ -1068,9 +1092,11 @@ export class PreviewController implements vscode.Disposable {
     const csp = buildWebviewCsp(webview.cspSource, nonce, {
       allowRemoteImages: settings.allowRemoteImages
     });
-    const customCssTag = customCssText
-      ? inlineCssTag(customCssText, nonce)
-      : '';
+    const customCssTag = inlineCssTag(
+      customCssText ?? '',
+      nonce,
+      ' id="omv-custom-css"'
+    );
 
     return `<!DOCTYPE html>
 <html lang="en">
@@ -1097,21 +1123,40 @@ export class PreviewController implements vscode.Disposable {
     settings: RuntimeSettings
   ): Promise<boolean> {
     if (!this.panel) return false;
-    const customCss = await resolveCustomCss(documentUri);
-    if (
-      this.webviewAllowsRemoteImages === settings.allowRemoteImages &&
-      this.webviewCustomCssKey === customCss.key
-    ) {
+    const remoteImagesChanged =
+      this.webviewAllowsRemoteImages !== settings.allowRemoteImages;
+
+    let nextCustomCssKey = this.webviewCustomCssKey;
+    let nextCustomCssText = this.webviewCustomCssText;
+    if (this.webviewCustomCssDirty || this.webviewCustomCssKey === undefined) {
+      const customCss = await resolveCustomCss(documentUri);
+      nextCustomCssKey = customCss.key;
+      nextCustomCssText = customCss.cssText;
+      this.webviewCustomCssDirty = false;
+    }
+
+    const customCssChanged = this.webviewCustomCssKey !== nextCustomCssKey;
+    if (!remoteImagesChanged && !customCssChanged) {
       return false;
     }
-    this.panel.webview.html = await this.buildWebviewHtml(
-      this.panel.webview,
-      settings,
-      customCss.cssText
-    );
+
+    if (remoteImagesChanged) {
+      this.panel.webview.html = await this.buildWebviewHtml(
+        this.panel.webview,
+        settings,
+        nextCustomCssText
+      );
+    } else {
+      this.postMessage({
+        type: 'updateCustomCss',
+        cssText: nextCustomCssText
+      });
+    }
+
     this.webviewAllowsRemoteImages = settings.allowRemoteImages;
-    this.webviewCustomCssKey = customCss.key;
-    return true;
+    this.webviewCustomCssKey = nextCustomCssKey;
+    this.webviewCustomCssText = nextCustomCssText;
+    return remoteImagesChanged;
   }
 
   private isCurrentCustomCssUri(uri: vscode.Uri): boolean {
