@@ -1,5 +1,7 @@
 import * as path from 'node:path';
 
+const posixPath = path.posix;
+
 export class Uri {
   constructor(
     public readonly scheme: string,
@@ -31,7 +33,10 @@ export class Uri {
   }
 
   static joinPath(base: Uri, ...segments: string[]): Uri {
-    const nextPath = path.resolve(base.fsPath || base.path || '/', ...segments);
+    const nextPath = posixPath.resolve(
+      base.fsPath || base.path || '/',
+      ...segments
+    );
     return Uri.file(nextPath);
   }
 
@@ -64,7 +69,7 @@ export class Uri {
 export function createVscodeMock(workspaceRoot?: string) {
   const workspaceFolderPaths = workspaceRoot ? [workspaceRoot] : [];
   const workspaceFolders = workspaceFolderPaths.map((rootPath) => ({
-    name: path.basename(rootPath),
+    name: posixPath.basename(rootPath),
     uri: Uri.file(rootPath)
   }));
 
@@ -81,8 +86,11 @@ export function createVscodeMock(workspaceRoot?: string) {
       textDocuments: [],
       getWorkspaceFolder(uri: Uri) {
         return workspaceFolders.find((folder) => {
-          const rel = path.relative(folder.uri.fsPath, uri.fsPath);
-          return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel));
+          const rel = posixPath.relative(folder.uri.fsPath, uri.fsPath);
+          return (
+            rel === '' ||
+            (!rel.startsWith('..') && !posixPath.isAbsolute(rel))
+          );
         });
       }
     }
