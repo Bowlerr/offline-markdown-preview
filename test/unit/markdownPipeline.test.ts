@@ -324,6 +324,43 @@ describe('markdownPipeline', () => {
     );
   });
 
+  it('does not mark raw HTML images as blocked when srcset still has a usable candidate', () => {
+    statSyncMock.mockImplementation((targetPath: string) => ({
+      size: targetPath.endsWith('large.gif')
+        ? 101 * 1024 * 1024
+        : 1024
+    }));
+
+    const sourceUri = Uri.file('/workspace/docs/readme.md');
+    const webview = {
+      asWebviewUri(uri: { toString(): string }) {
+        return { toString: () => `vscode-webview://${uri.toString()}` };
+      }
+    };
+
+    const result = renderMarkdown(
+      '<img src="images/large.gif" srcset="images/small.gif 1x" alt="demo" />',
+      {
+        sourceUri,
+        webview: webview as any,
+        allowHtml: true,
+        allowRemoteImages: false,
+        maxImageMB: 100
+      }
+    );
+
+    expect(result.html).toContain(
+      'data-local-src="file:///workspace/docs/images/large.gif"'
+    );
+    expect(result.html).toContain(
+      'srcset="vscode-webview://file:///workspace/docs/images/small.gif 1x"'
+    );
+    expect(result.html).not.toContain('data-image-blocked="size-limit"');
+    expect(result.html).not.toContain(
+      'alt="demo (blocked: exceeds preview.maxImageMB)"'
+    );
+  });
+
   it('preserves existing HTML entities when raw img tags are rewritten', () => {
     const sourceUri = Uri.file('/workspace/docs/readme.md');
     const webview = {
