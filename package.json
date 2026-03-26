@@ -2,7 +2,7 @@
   "name": "offline-markdown-preview",
   "displayName": "Offline Markdown Preview",
   "description": "Offline Markdown preview for VS Code with Mermaid diagrams, KaTeX math, secure local rendering, export, scroll sync, and outline navigation.",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "publisher": "bowlerr",
   "author": {
     "name": "Bowlerr",
