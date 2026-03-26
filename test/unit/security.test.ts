@@ -233,6 +233,30 @@ describe('security helpers', () => {
     expect(warnings).toEqual([]);
   });
 
+  it('lets a folder-level empty value disable inherited workspace CSS', async () => {
+    const workspaceRoot = await makeTempDir();
+    const workspaceA = path.join(workspaceRoot, 'workspace-a');
+    const workspaceB = path.join(workspaceRoot, 'workspace-b');
+    const workspaceFilePath = path.join(workspaceRoot, 'demo.code-workspace');
+    const cssPath = path.join(workspaceB, 'styles', 'preview.css');
+    await fs.mkdir(workspaceA, { recursive: true });
+    await fs.mkdir(path.dirname(cssPath), { recursive: true });
+    await fs.writeFile(cssPath, '.markdown-body { color: purple; }', 'utf8');
+
+    const { security, vscodeMock, warnings } = await loadSecurity({
+      workspaceFolderPaths: [workspaceA, workspaceB],
+      workspaceFilePath,
+      workspaceCustomCssPath: 'workspace-b/styles/preview.css',
+      workspaceFolderCustomCssPath: ''
+    });
+    const result = await security.resolveCustomCss(
+      vscodeMock.Uri.file(path.join(workspaceA, 'doc.md'))
+    );
+
+    expect(result.cssText).toBeUndefined();
+    expect(warnings).toEqual([]);
+  });
+
   it('rejects workspace traversal paths', async () => {
     const workspaceRoot = await makeTempDir();
     const { security, vscodeMock, warnings } = await loadSecurity({

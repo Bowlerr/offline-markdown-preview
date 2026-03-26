@@ -90,22 +90,27 @@ function getCustomCssConfig(documentUri: vscode.Uri): CustomCssConfig {
   );
   const workspaceFolder = vscode.workspace.getWorkspaceFolder(documentUri);
   const customCssInspect = cfg.inspect<string>('preview.customCssPath');
+  const rawWorkspaceFolderPath = customCssInspect?.workspaceFolderValue;
+  const rawWorkspacePath = customCssInspect?.workspaceValue;
   const workspaceFolderPath = normalizeConfiguredPath(
-    customCssInspect?.workspaceFolderValue
+    rawWorkspaceFolderPath
   );
-  const workspacePath = normalizeConfiguredPath(customCssInspect?.workspaceValue);
+  const workspacePath = normalizeConfiguredPath(rawWorkspacePath);
+  const hasWorkspaceFolderOverride = rawWorkspaceFolderPath !== undefined;
 
   return {
     globalPath: normalizeConfiguredPath(
       cfg.inspect<string>('preview.globalCustomCssPath')?.globalValue
     ),
-    workspacePath: workspaceFolderPath ?? workspacePath,
-    workspaceScope: workspaceFolderPath
+    workspacePath: hasWorkspaceFolderOverride
+      ? workspaceFolderPath
+      : workspacePath,
+    workspaceScope: hasWorkspaceFolderOverride
       ? 'workspaceFolder'
       : workspacePath
         ? 'workspace'
         : undefined,
-    workspaceBaseUri: workspaceFolderPath
+    workspaceBaseUri: hasWorkspaceFolderOverride
       ? workspaceFolder?.uri
       : workspacePath
         ? getWorkspaceCustomCssBaseUri()
