@@ -28,4 +28,18 @@ describe('linkResolver', () => {
     const source = Uri.file('/workspace/docs/a.md');
     expect(api.resolveImageUri(source as any, '../../secret.png')).toBeUndefined();
   });
+
+  it('strips query strings and fragments before resolving local image paths', () => {
+    const source = Uri.file('/workspace/docs/a.md');
+
+    expect(api.resolveImageUri(source as any, './demo.gif?v=1#preview')?.toString()).toBe(
+      'file:///workspace/docs/demo.gif'
+    );
+    expect(
+      api.resolveImageUri(
+        source as any,
+        'file:///workspace/docs/demo@2x.gif?cache=1#retina'
+      )?.toString()
+    ).toBe('file:///workspace/docs/demo@2x.gif');
+  });
 });

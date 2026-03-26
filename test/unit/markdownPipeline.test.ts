@@ -185,6 +185,33 @@ describe('markdownPipeline', () => {
     expect(result.html).toContain('loading="lazy"');
   });
 
+  it('resolves local raw HTML img tags with query strings and fragments', () => {
+    const sourceUri = Uri.file('/workspace/docs/readme.md');
+    const webview = {
+      asWebviewUri(uri: { toString(): string }) {
+        return { toString: () => `vscode-webview://${uri.toString()}` };
+      }
+    };
+
+    const result = renderMarkdown(
+      '<img src="images/scroll.gif?v=1#demo" alt="demo" />',
+      {
+        sourceUri,
+        webview: webview as any,
+        allowHtml: true,
+        allowRemoteImages: false,
+        maxImageMB: 100
+      }
+    );
+
+    expect(result.html).toContain(
+      'src="vscode-webview://file:///workspace/docs/images/scroll.gif"'
+    );
+    expect(result.html).toContain(
+      'data-omv-local-src="file:///workspace/docs/images/scroll.gif"'
+    );
+  });
+
   it('rewrites raw HTML img tags that rely on srcset alone', () => {
     const sourceUri = Uri.file('/workspace/docs/readme.md');
     const webview = {
@@ -211,6 +238,33 @@ describe('markdownPipeline', () => {
       'data-omv-export-srcset="file:///workspace/docs/images/scroll.gif 1x, file:///workspace/docs/images/scroll@2x.gif 2x"'
     );
     expect(result.html).toContain('loading="lazy"');
+  });
+
+  it('resolves local raw HTML srcset candidates with query strings and fragments', () => {
+    const sourceUri = Uri.file('/workspace/docs/readme.md');
+    const webview = {
+      asWebviewUri(uri: { toString(): string }) {
+        return { toString: () => `vscode-webview://${uri.toString()}` };
+      }
+    };
+
+    const result = renderMarkdown(
+      '<img srcset="images/scroll.gif?v=1 1x, images/scroll@2x.gif#retina 2x" alt="demo" />',
+      {
+        sourceUri,
+        webview: webview as any,
+        allowHtml: true,
+        allowRemoteImages: false,
+        maxImageMB: 100
+      }
+    );
+
+    expect(result.html).toContain(
+      'srcset="vscode-webview://file:///workspace/docs/images/scroll.gif 1x, vscode-webview://file:///workspace/docs/images/scroll@2x.gif 2x"'
+    );
+    expect(result.html).toContain(
+      'data-omv-export-srcset="file:///workspace/docs/images/scroll.gif 1x, file:///workspace/docs/images/scroll@2x.gif 2x"'
+    );
   });
 
   it('rewrites raw HTML img tags when quoted attributes contain >', () => {

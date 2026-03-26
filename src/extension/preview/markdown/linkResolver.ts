@@ -76,17 +76,38 @@ export async function toDataUri(uri: vscode.Uri): Promise<string> {
   return `data:${mime};base64,${bytes.toString('base64')}`;
 }
 
+function stripLocalImageUrlDecoration(src: string): string {
+  const queryIndex = src.indexOf('?');
+  const hashIndex = src.indexOf('#');
+  const endIndex =
+    queryIndex >= 0 && hashIndex >= 0
+      ? Math.min(queryIndex, hashIndex)
+      : queryIndex >= 0
+        ? queryIndex
+        : hashIndex;
+  return endIndex >= 0 ? src.slice(0, endIndex) : src;
+}
+
 export function resolveImageUri(source: vscode.Uri, src: string): vscode.Uri | undefined {
-  if (!src || isHttpUrl(src) || /^data:/i.test(src) || /^vscode-webview-resource:/i.test(src)) {
+  const normalizedSrc = stripLocalImageUrlDecoration(src);
+  if (
+    !normalizedSrc ||
+    isHttpUrl(normalizedSrc) ||
+    /^data:/i.test(normalizedSrc) ||
+    /^vscode-webview-resource:/i.test(normalizedSrc)
+  ) {
     return undefined;
   }
   const sourceFolder = vscode.workspace.getWorkspaceFolder(source);
-  if (/^file:/i.test(src)) {
-    const parsed = vscode.Uri.parse(src, true);
+  if (/^file:/i.test(normalizedSrc)) {
+    const parsed = vscode.Uri.parse(normalizedSrc, true);
     if (!sourceFolder) return parsed;
     return isWithinWorkspace(parsed, sourceFolder.uri) ? parsed : undefined;
   }
-  const resolved = vscode.Uri.joinPath(source.with({ path: path.posix.dirname(source.path) }), src);
+  const resolved = vscode.Uri.joinPath(
+    source.with({ path: path.posix.dirname(source.path) }),
+    normalizedSrc
+  );
   if (!sourceFolder) return resolved;
   return isWithinWorkspace(resolved, sourceFolder.uri) ? resolved : undefined;
 }
