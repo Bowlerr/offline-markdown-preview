@@ -183,6 +183,8 @@ function rewriteImageAttributes(
 ): void {
   const override = options.remoteImageOverrides?.get(rawSrc);
   const resolved = resolveImageUri(options.sourceUri, rawSrc);
+  const blockedRemoteImage =
+    /^https?:\/\//i.test(rawSrc) && !options.allowRemoteImages;
 
   if (override) {
     setHtmlAttribute(attributes, 'data-local-src', override.toString());
@@ -191,7 +193,6 @@ function rewriteImageAttributes(
       'src',
       options.webview.asWebviewUri(override).toString()
     );
-    rewriteSrcsetAttribute(attributes, options);
   } else if (resolved) {
     setHtmlAttribute(attributes, 'data-local-src', resolved.toString());
     try {
@@ -206,14 +207,12 @@ function rewriteImageAttributes(
         setHtmlAttribute(attributes, 'data-image-blocked', 'size-limit');
         setHtmlAttribute(attributes, 'src', '');
         setHtmlAttribute(attributes, 'data-max-mb', String(options.maxImageMB));
-        rewriteSrcsetAttribute(attributes, options);
       } else {
         setHtmlAttribute(
           attributes,
           'src',
           options.webview.asWebviewUri(resolved).toString()
         );
-        rewriteSrcsetAttribute(attributes, options);
       }
     } catch {
       // If stat fails we still rewrite to a webview URI and let runtime loading decide the result.
@@ -222,18 +221,18 @@ function rewriteImageAttributes(
         'src',
         options.webview.asWebviewUri(resolved).toString()
       );
-      rewriteSrcsetAttribute(attributes, options);
     }
-  } else if (/^https?:\/\//i.test(rawSrc) && !options.allowRemoteImages) {
+  } else if (blockedRemoteImage) {
     setHtmlAttribute(attributes, 'data-remote-src', rawSrc);
     setHtmlAttribute(attributes, 'data-image-blocked', 'remote-disabled');
-    const srcset = getHtmlAttribute(attributes, 'srcset')?.value;
-    if (srcset) {
-      rewriteSrcsetAttribute(attributes, options);
-      const previewSrcset = getHtmlAttribute(attributes, 'srcset')?.value;
-      const previewSrc = previewSrcset
-        ? parseHtmlSrcset(previewSrcset)[0]?.url
-        : undefined;
+  }
+
+  rewriteSrcsetAttribute(attributes, options);
+
+  if (blockedRemoteImage) {
+    const previewSrcset = getHtmlAttribute(attributes, 'srcset')?.value;
+    if (previewSrcset) {
+      const previewSrc = parseHtmlSrcset(previewSrcset)[0]?.url;
       setHtmlAttribute(attributes, 'src', previewSrc ?? '');
     } else {
       setHtmlAttribute(attributes, 'srcset', '');

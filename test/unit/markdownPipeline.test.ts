@@ -391,6 +391,34 @@ describe('markdownPipeline', () => {
     );
   });
 
+  it('rewrites raw HTML srcset even when the primary src stays remote', () => {
+    const sourceUri = Uri.file('/workspace/docs/readme.md');
+    const webview = {
+      asWebviewUri(uri: { toString(): string }) {
+        return { toString: () => `vscode-webview://${uri.toString()}` };
+      }
+    };
+
+    const result = renderMarkdown(
+      '<img src="https://example.com/image.gif" srcset="images/local.gif 1x, https://example.com/image@2x.gif 2x" />',
+      {
+        sourceUri,
+        webview: webview as any,
+        allowHtml: true,
+        allowRemoteImages: true,
+        maxImageMB: 100
+      }
+    );
+
+    expect(result.html).toContain('src="https://example.com/image.gif"');
+    expect(result.html).toContain(
+      'srcset="vscode-webview://file:///workspace/docs/images/local.gif 1x, https://example.com/image@2x.gif 2x"'
+    );
+    expect(result.html).toContain(
+      'data-export-srcset="file:///workspace/docs/images/local.gif 1x, https://example.com/image@2x.gif 2x"'
+    );
+  });
+
   it('ignores img-like text inside other HTML attribute values', () => {
     const sourceUri = Uri.file('/workspace/docs/readme.md');
     const webview = {
