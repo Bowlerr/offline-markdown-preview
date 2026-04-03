@@ -44,11 +44,47 @@ function createWorkspaceFolder(fsPath: string) {
   };
 }
 
+function createTextDocument(
+  filePath: string,
+  languageId = 'markdown',
+  content = '# Doc'
+) {
+  return {
+    languageId,
+    uri: Uri.file(filePath),
+    lineCount: Math.max(1, content.split('\n').length),
+    version: 1,
+    getText: () => content
+  };
+}
+
+function createTextEditor(
+  filePath: string,
+  options: {
+    languageId?: string;
+    viewColumn?: number;
+    content?: string;
+  } = {}
+) {
+  const document = createTextDocument(
+    filePath,
+    options.languageId,
+    options.content
+  );
+  return {
+    document,
+    viewColumn: options.viewColumn ?? 1,
+    selection: undefined,
+    revealRange: vi.fn()
+  };
+}
+
 function createPreviewPanelTestContext(options: {
   workspaceFolderPaths: string[];
   workspaceFilePath?: string;
   activeEditorPath?: string;
   activeEditorLanguageId?: string;
+  autoOpenPreview?: boolean;
   quickPickLabel?: string;
   openDialogPath?: string;
   customCssUris?: InstanceType<typeof Uri>[];
@@ -92,15 +128,10 @@ function createPreviewPanelTestContext(options: {
   );
   const globalStateUpdate = vi.fn().mockResolvedValue(undefined);
 
-  const activeTextEditor = options.activeEditorPath
-    ? {
-        document: {
-          languageId: options.activeEditorLanguageId ?? 'markdown',
-          uri: Uri.file(options.activeEditorPath),
-          lineCount: 1
-        },
-        viewColumn: 1
-      }
+  let activeTextEditor = options.activeEditorPath
+    ? createTextEditor(options.activeEditorPath, {
+        languageId: options.activeEditorLanguageId
+      })
     : undefined;
 
   const showQuickPick = vi.fn().mockImplementation(async (choices: any[]) => {
@@ -109,6 +140,72 @@ function createPreviewPanelTestContext(options: {
     }
     return choices.find((choice) => choice.label === options.quickPickLabel);
   });
+  const createWebviewPanel = vi.fn().mockImplementation(
+    (_viewType: string, _title: string, viewColumn: number) => {
+      const disposeListeners: Array<() => void> = [];
+      const viewStateListeners: Array<
+        (event: { webviewPanel: { viewColumn?: number } }) => void
+      > = [];
+      const messageListeners: Array<(message: unknown) => void> = [];
+
+      const panel = {
+        visible: true,
+        viewColumn,
+        title: _title,
+        reveal: vi.fn((nextColumn?: number) => {
+          panel.visible = true;
+          if (typeof nextColumn === 'number') {
+            panel.viewColumn = nextColumn;
+            viewStateListeners.forEach((listener) =>
+              listener({ webviewPanel: panel })
+            );
+          }
+        }),
+        dispose: vi.fn(() => {
+          panel.visible = false;
+          disposeListeners.forEach((listener) => listener());
+        }),
+        onDidDispose: (listener: () => void) => {
+          disposeListeners.push(listener);
+          return { dispose() {} };
+        },
+        onDidChangeViewState: (
+          listener: (event: { webviewPanel: { viewColumn?: number } }) => void
+        ) => {
+          viewStateListeners.push(listener);
+          return { dispose() {} };
+        },
+        webview: {
+          html: '',
+          cspSource: 'webview-source',
+          asWebviewUri: (uri: InstanceType<typeof Uri>) => uri,
+          postMessage: vi.fn(),
+          onDidReceiveMessage: (listener: (message: unknown) => void) => {
+            messageListeners.push(listener);
+            return { dispose() {} };
+          }
+        }
+      };
+
+      return panel;
+    }
+  );
+  const showTextDocument = vi
+    .fn()
+    .mockImplementation(async (document: any, columnOrOptions?: any) => {
+      const viewColumn =
+        typeof columnOrOptions === 'number'
+          ? columnOrOptions
+          : columnOrOptions?.viewColumn ?? 1;
+      const editor = {
+        document,
+        viewColumn,
+        selection: undefined,
+        revealRange: vi.fn()
+      };
+      activeTextEditor = editor;
+      return editor;
+    });
 
   const workspace = {
     workspaceFile: options.workspaceFilePath
@@ -128,7 +225,7 @@ function createPreviewPanelTestContext(options: {
     getConfiguration: vi.fn(() => ({
       get<T>(key: string, defaultValue: T): T {
         if (key === 'preview.autoOpen') {
-          return false as T;
+          return (options.autoOpenPreview ?? false) as T;
         }
         if (key === 'preview.useMarkdownPreviewGithubStyling') {
           return false as T;
@@ -167,11 +264,15 @@ function createPreviewPanelTestContext(options: {
     Uri,
     workspace,
     window: {
-      activeTextEditor,
+      get activeTextEditor() {
+        return activeTextEditor;
+      },
       activeColorTheme: { kind: 2 },
+      createWebviewPanel,
       showQuickPick,
       showOpenDialog,
       showInformationMessage,
+      showTextDocument,
       showWarningMessage,
       onDidChangeActiveTextEditor: (listener: Listener<unknown>) =>
         activeEditorChange.register(listener),
@@ -254,7 +355,9 @@ function createPreviewPanelTestContext(options: {
   return {
     changeTextDocument: textDocumentChange.fire,
     changeConfiguration: configurationChange.fire,
+    changeActiveTextEditor: activeEditorChange.fire,
     closeTextDocument: textDocumentClose.fire,
+    createTextEditor,
     fsMock,
     globalState: {
       get: globalStateGet,
@@ -291,11 +394,178 @@ async function loadPreviewPanelTestModule(
 }
 
 afterEach(() => {
+  vi.useRealTimers();
   vi.resetModules();
   vi.doUnmock('vscode');
   vi.doUnmock('../../src/extension/preview/markdown/markdownPipeline');
   vi.doUnmock('../../src/extension/preview/markdown/security');
   vi.clearAllMocks();
+});
+
+describe('PreviewController panel lifecycle', () => {
+  it('switches active markdown files without re-revealing the preview panel', async () => {
+    vi.useFakeTimers();
+    const { changeActiveTextEditor, createTextEditor, module, vscodeMock } =
+      await loadPreviewPanelTestModule({
+        workspaceFolderPaths: ['/workspace-a'],
+        activeEditorPath: '/workspace-a/one.md'
+      });
+
+    const controller = new module.PreviewController({
+      extensionUri: Uri.file('/extension'),
+      globalStorageUri: Uri.file('/global-storage')
+    } as any);
+
+    const reveal = vi.fn();
+    const renderNow = vi.fn().mockResolvedValue(undefined);
+    (controller as any).panel = {
+      visible: true,
+      viewColumn: 2,
+      reveal,
+      webview: { postMessage: vi.fn() }
+    };
+    (controller as any).followActiveMarkdownBeside = true;
+    (controller as any).renderNow = renderNow;
+
+    changeActiveTextEditor(
+      createTextEditor('/workspace-a/two.md', { viewColumn: 1 })
+    );
+    await vi.runAllTimersAsync();
+
+    expect((controller as any).currentEditor.document.uri.fsPath).toBe(
+      '/workspace-a/two.md'
+    );
+    expect(reveal).not.toHaveBeenCalled();
+    expect(renderNow).toHaveBeenCalledTimes(1);
+    expect(vscodeMock.window.showTextDocument).not.toHaveBeenCalled();
+  });
+
+  it('reuses the remembered preview column when auto-opening', async () => {
+    vi.useFakeTimers();
+    const { changeActiveTextEditor, createTextEditor, module, vscodeMock } =
+      await loadPreviewPanelTestModule({
+        workspaceFolderPaths: ['/workspace-a'],
+        activeEditorPath: '/workspace-a/notes.txt',
+        activeEditorLanguageId: 'plaintext',
+        autoOpenPreview: true
+      });
+
+    const controller = new module.PreviewController({
+      extensionUri: Uri.file('/extension'),
+      globalStorageUri: Uri.file('/global-storage')
+    } as any);
+
+    (controller as any).lastPreviewColumn = 3;
+
+    changeActiveTextEditor(
+      createTextEditor('/workspace-a/doc.md', { viewColumn: 1 })
+    );
+    await vi.runAllTimersAsync();
+
+    expect(vscodeMock.window.createWebviewPanel).toHaveBeenCalled();
+    expect(vscodeMock.window.createWebviewPanel.mock.calls[0][2]).toBe(3);
+  });
+
+  it('does not auto-reveal an existing hidden preview tab on markdown switches', async () => {
+    vi.useFakeTimers();
+    const { changeActiveTextEditor, createTextEditor, module } =
+      await loadPreviewPanelTestModule({
+        workspaceFolderPaths: ['/workspace-a'],
+        activeEditorPath: '/workspace-a/notes.txt',
+        activeEditorLanguageId: 'plaintext',
+        autoOpenPreview: true
+      });
+
+    const controller = new module.PreviewController({
+      extensionUri: Uri.file('/extension'),
+      globalStorageUri: Uri.file('/global-storage')
+    } as any);
+
+    const reveal = vi.fn();
+    const renderNow = vi.fn().mockResolvedValue(undefined);
+    (controller as any).panel = {
+      visible: false,
+      viewColumn: 1,
+      reveal,
+      webview: { postMessage: vi.fn() }
+    };
+    (controller as any).renderNow = renderNow;
+
+    changeActiveTextEditor(
+      createTextEditor('/workspace-a/two.md', { viewColumn: 1 })
+    );
+    await vi.runAllTimersAsync();
+
+    expect(reveal).not.toHaveBeenCalled();
+    expect(renderNow).toHaveBeenCalledTimes(1);
+  });
+
+  it('relocates markdown editors only when they open in the preview column', async () => {
+    const { changeActiveTextEditor, createTextEditor, module, vscodeMock } =
+      await loadPreviewPanelTestModule({
+        workspaceFolderPaths: ['/workspace-a'],
+        activeEditorPath: '/workspace-a/one.md'
+      });
+
+    const controller = new module.PreviewController({
+      extensionUri: Uri.file('/extension'),
+      globalStorageUri: Uri.file('/global-storage')
+    } as any);
+
+    const reveal = vi.fn();
+    const renderNow = vi.fn().mockResolvedValue(undefined);
+    (controller as any).panel = {
+      visible: true,
+      viewColumn: 2,
+      reveal,
+      webview: { postMessage: vi.fn() }
+    };
+    (controller as any).preferredMarkdownColumn = 1;
+    (controller as any).renderNow = renderNow;
+
+    const conflictedEditor = createTextEditor('/workspace-a/two.md', {
+      viewColumn: 2
+    });
+    changeActiveTextEditor(conflictedEditor);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(vscodeMock.window.showTextDocument).toHaveBeenCalledWith(
+      conflictedEditor.document,
+      {
+        viewColumn: 1,
+        preview: false
+      }
+    );
+    expect(reveal).toHaveBeenCalledWith(2, true);
+    expect(renderNow).toHaveBeenCalledTimes(1);
+    expect((controller as any).currentEditor.viewColumn).toBe(1);
+  });
+
+  it('rerenders when a hidden preview becomes visible again', async () => {
+    vi.useFakeTimers();
+    const { module, vscodeMock } = await loadPreviewPanelTestModule({
+      workspaceFolderPaths: ['/workspace-a'],
+      activeEditorPath: '/workspace-a/one.md'
+    });
+
+    const controller = new module.PreviewController({
+      extensionUri: Uri.file('/extension'),
+      globalStorageUri: Uri.file('/global-storage')
+    } as any);
+
+    const renderNow = vi.spyOn(controller as any, 'renderNow');
+    await controller.openPreview(true, true);
+    renderNow.mockClear();
+
+    const panel = (controller as any).panel;
+    panel.visible = false;
+    panel.reveal(panel.viewColumn, true);
+    await vi.runAllTimersAsync();
+
+    expect(renderNow).toHaveBeenCalledTimes(1);
+    expect(vscodeMock.window.createWebviewPanel).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe('PreviewController custom CSS', () => {
