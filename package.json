@@ -2,7 +2,7 @@
   "name": "offline-markdown-preview",
   "displayName": "Offline Markdown Preview",
   "description": "Offline Markdown preview for VS Code with Mermaid diagrams, KaTeX math, secure local rendering, export, scroll sync, and outline navigation.",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "publisher": "bowlerr",
   "author": {
     "name": "Bowlerr",
@@ -160,7 +160,7 @@
         "offlineMarkdownViewer.preview.autoOpen": {
           "type": "boolean",
           "default": true,
-          "description": "Automatically open preview to the side when a Markdown editor becomes active."
+          "description": "Automatically open preview in the remembered preview group when a Markdown editor becomes active."
         },
         "offlineMarkdownViewer.preview.allowRemoteImages": {
           "type": "boolean",

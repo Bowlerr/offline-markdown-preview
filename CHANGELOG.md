@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.3.1
+
+- Keep the preview panel fixed in its current group while switching between Markdown files instead of re-revealing it on each file change
+- Reuse the remembered preview group when reopening the preview so docked previews no longer unexpectedly reopen at the bottom
+- Stop auto-revealing hidden preview tabs during Markdown editor switches and rerender when the preview becomes visible again to restore correct styling
+- Rename the primary command to `Open Preview` and rename the current-group variant to `Open Preview in Current Group`
+
 ## 0.3.0
 
 - Add `offlineMarkdownViewer.preview.useMarkdownPreviewGithubStyling` to import CSS directly from the installed `bierner.markdown-preview-github-styles` extension
