@@ -64,12 +64,12 @@
     "commands": [
       {
         "command": "offlineMarkdownViewer.openPreview",
-        "title": "Open Preview",
+        "title": "Open Preview in Current Group",
         "category": "Offline Markdown Preview"
       },
       {
         "command": "offlineMarkdownViewer.openPreviewToSide",
-        "title": "Open Preview To Side",
+        "title": "Open Preview",
         "category": "Offline Markdown Preview"
       },
       {

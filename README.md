@@ -53,11 +53,11 @@ A quick tour of key workflows (all offline, inside VS Code):
 
 1. Open a Markdown file (`.md`) in VS Code.
 2. Preview opens automatically by default (`offlineMarkdownViewer.preview.autoOpen = true`) when a Markdown editor becomes active.
-3. You can also run **Offline Markdown Preview: Open Preview** (or **Open Preview To Side**) manually.
+3. You can also run **Offline Markdown Preview: Open Preview** (or **Open Preview in Current Group**) manually.
 4. Use the outline view and heading commands to navigate larger documents.
 5. Export when needed with **Export HTML** or **Export PDF**.
 
-Tip: use the editor title action to open preview to the side while editing.
+Tip: use the editor title action to open preview while editing.
 
 ## Privacy, Offline, and Data Safety
 
@@ -112,8 +112,8 @@ For a full setup guide, example CSS, and GitHub-style walkthrough, see [docs/cus
 
 | Command                                                   | Purpose                                                 |
 | --------------------------------------------------------- | ------------------------------------------------------- |
-| `Offline Markdown Preview: Open Preview`                  | Open the Markdown preview panel                         |
-| `Offline Markdown Preview: Open Preview To Side`          | Open the preview beside the active editor               |
+| `Offline Markdown Preview: Open Preview`                  | Open the preview in the remembered/side editor group    |
+| `Offline Markdown Preview: Open Preview in Current Group` | Open the Markdown preview in the active editor group    |
 | `Offline Markdown Preview: Export HTML`                   | Export the current preview/document as HTML             |
 | `Offline Markdown Preview: Export PDF`                    | Export the current preview/document as PDF              |
 | `Offline Markdown Preview: Set Custom CSS`                | Enable installed GitHub styling or configure custom CSS |

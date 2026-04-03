@@ -296,19 +296,6 @@ export class PreviewController implements vscode.Disposable {
             this.preferredMarkdownColumn = editorColumn;
           }
           void this.tryAutoOpenPreview(editor);
-          if (
-            this.panel &&
-            this.followActiveMarkdownBeside &&
-            this.panel.visible
-          ) {
-            // Keep preview open without relocating it to a new group on every file switch.
-            this.panel.reveal(
-              this.panel.viewColumn ??
-                this.lastPreviewColumn ??
-                vscode.ViewColumn.Beside,
-              true
-            );
-          }
           // File switches should feel instant; debounce is still used for document edits.
           this.scheduleRender(true);
         }
@@ -433,6 +420,7 @@ export class PreviewController implements vscode.Disposable {
 
     const initialColumn =
       targetColumn ??
+      this.lastPreviewColumn ??
       (sideBySide ? vscode.ViewColumn.Beside : vscode.ViewColumn.Active);
     this.panel = vscode.window.createWebviewPanel(
       'offlineMarkdownViewer.preview',
@@ -476,6 +464,12 @@ export class PreviewController implements vscode.Disposable {
       this.panel.onDidChangeViewState((event) => {
         this.lastPreviewColumn =
           event.webviewPanel.viewColumn ?? this.lastPreviewColumn;
+        if (
+          event.webviewPanel.visible &&
+          this.currentEditor?.document.languageId === 'markdown'
+        ) {
+          this.scheduleRender(true);
+        }
       }),
       this.panel.webview.onDidReceiveMessage((msg: unknown) => {
         void this.handleWebviewMessage(msg);
@@ -1053,7 +1047,7 @@ export class PreviewController implements vscode.Disposable {
     if (this.autoOpenInFlight) return;
     const settings = getSettings(editor.document.uri);
     if (!settings.autoOpenPreview) return;
-    if (this.panel?.visible) return;
+    if (this.panel) return;
 
     this.autoOpenInFlight = true;
     try {
