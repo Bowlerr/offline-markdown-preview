@@ -59,6 +59,18 @@ interface HtmlExportSnapshotData {
   themeVariables?: Record<string, string>;
 }
 
+interface ProcessResult {
+  ok: boolean;
+  code: number | string;
+  stdout: string;
+  stderr: string;
+}
+
+const PDF_EXPORT_DOCUMENT_MARKER =
+  '<meta name="offline-markdown-preview-export" content="ready">';
+const PDF_EXPORT_READY_ATTRIBUTE = 'data-omv-pdf-ready="true"';
+const PDF_EXPORT_VIRTUAL_TIME_BUDGET_MS = 10_000;
+
 function withSvgFragment(url: string, uri: vscode.Uri): string {
   if (!uri.fragment || path.extname(uri.fsPath || uri.path).toLowerCase() !== '.svg') {
     return url;
@@ -210,6 +222,7 @@ export class MarkdownOutlineProvider
 
 export class PreviewController implements vscode.Disposable {
   private readonly disposables: vscode.Disposable[] = [];
+  private readonly output: vscode.OutputChannel;
   private panel: vscode.WebviewPanel | undefined;
   private currentEditor: vscode.TextEditor | undefined;
   private state: PreviewPanelState = { toc: [] };
@@ -243,6 +256,8 @@ export class PreviewController implements vscode.Disposable {
   readonly onOutlineChanged = this.outlineEmitter.event;
 
   constructor(private readonly context: vscode.ExtensionContext) {
+    this.output = vscode.window.createOutputChannel('Offline Markdown Preview');
+    this.disposables.push(this.output);
     this.previewUiState = this.readPreviewUiState();
     this.disposables.push(
       vscode.workspace.onDidChangeTextDocument((e) => {
@@ -570,33 +585,65 @@ export class PreviewController implements vscode.Disposable {
     });
     if (!target) return;
 
-    const document = await this.buildStandaloneHtml(
-      html,
-      snapshot.uri,
-      settings,
-      renderedSnapshot?.themeVariables
-    );
-    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'omv-pdf-'));
-    const tempHtmlPath = path.join(
-      tempDir,
-      `${path.basename(snapshot.uri.fsPath).replace(/\.md$/i, '')}.print.html`
-    );
-    await fs.writeFile(tempHtmlPath, document, 'utf8');
-    const pdfExport = await this.tryHeadlessPdfExport(
-      vscode.Uri.file(tempHtmlPath),
-      target
-    );
-    if (pdfExport.ok) {
+    let tempDir: string | undefined;
+    try {
+      const document = await this.buildStandaloneHtml(
+        html,
+        snapshot.uri,
+        settings,
+        renderedSnapshot?.themeVariables,
+        true
+      );
+      tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'omv-pdf-'));
+      const tempHtmlPath = path.join(
+        tempDir,
+        `${path.basename(snapshot.uri.fsPath).replace(/\.md$/i, '')}.print.html`
+      );
+      const stagedPdfPath = path.join(tempDir, 'rendered.pdf');
+      await fs.writeFile(tempHtmlPath, document, 'utf8');
+
+      this.logPdfDiagnostic(`Temporary HTML: ${tempHtmlPath}`);
+      this.logPdfDiagnostic(`Staged PDF: ${stagedPdfPath}`);
+      this.logPdfDiagnostic(`Requested PDF target: ${target.fsPath}`);
+
+      const pdfExport = await this.tryHeadlessPdfExport(
+        vscode.Uri.file(tempHtmlPath),
+        vscode.Uri.file(stagedPdfPath)
+      );
+      if (!pdfExport.ok) {
+        void vscode.window.showErrorMessage(
+          `PDF export failed: ${pdfExport.reason}. See the Offline Markdown Preview output for details.`
+        );
+        return;
+      }
+
+      const pdfBytes = await fs.readFile(stagedPdfPath);
+      await vscode.workspace.fs.writeFile(target, pdfBytes);
+      this.logPdfDiagnostic(
+        `PDF export completed (${pdfBytes.byteLength} bytes written).`
+      );
       void vscode.window.showInformationMessage(
         `Exported PDF to ${target.fsPath}`
       );
-      return;
+    } catch (error) {
+      const message = getErrorMessage(error);
+      this.logPdfDiagnostic(`PDF export failed: ${message}`);
+      void vscode.window.showErrorMessage(
+        `PDF export failed: ${message}. See the Offline Markdown Preview output for details.`
+      );
+    } finally {
+      if (tempDir) {
+        this.logPdfDiagnostic(`Cleaning temporary PDF files: ${tempDir}`);
+        try {
+          await fs.rm(tempDir, { recursive: true, force: true });
+          this.logPdfDiagnostic(`Temporary PDF files removed: ${tempDir}`);
+        } catch (error) {
+          this.logPdfDiagnostic(
+            `Temporary PDF cleanup failed for ${tempDir}: ${getErrorMessage(error)}`
+          );
+        }
+      }
     }
-
-    await vscode.env.openExternal(vscode.Uri.file(tempHtmlPath));
-    void vscode.window.showWarningMessage(
-      `Direct PDF export is unavailable (${pdfExport.reason}). Opened printable HTML instead; use Print → Save as PDF.`
-    );
   }
 
   async toggleScrollSync(): Promise<void> {
@@ -1866,56 +1913,136 @@ export class PreviewController implements vscode.Disposable {
     sourceHtmlUri: vscode.Uri,
     targetPdfUri: vscode.Uri
   ): Promise<{ ok: true } | { ok: false; reason: string }> {
-    const candidates = getHeadlessBrowserCandidates();
-    const htmlUrl = sourceHtmlUri.toString(true);
+    const candidates = this.getHeadlessBrowserCandidates();
+    const htmlUrl = buildPdfNavigationUrl(sourceHtmlUri);
+    let lastFailure =
+      'no supported local Chrome, Edge, or Chromium executable was found';
+
+    this.logPdfDiagnostic(`PDF navigation URL: ${htmlUrl}`);
 
     for (const candidate of candidates) {
-      try {
-        await fs.access(candidate);
-      } catch {
-        // Not all candidates are absolute paths. PATH-based commands are handled below.
+      if (path.isAbsolute(candidate)) {
+        try {
+          await fs.access(candidate);
+        } catch {
+          continue;
+        }
       }
 
-      const result = await runProcess(candidate, [
-        '--headless=new',
-        '--disable-gpu',
-        '--no-first-run',
-        '--no-default-browser-check',
-        '--allow-file-access-from-files',
-        '--print-to-pdf-no-header',
-        `--print-to-pdf=${targetPdfUri.fsPath}`,
-        htmlUrl
-      ]);
+      for (const headlessMode of ['--headless=new', '--headless']) {
+        try {
+          await fs.access(sourceHtmlUri.fsPath);
+          this.logPdfDiagnostic(
+            `Temporary HTML exists immediately before navigation: ${sourceHtmlUri.fsPath}`
+          );
+        } catch (error) {
+          const reason = `temporary HTML is unavailable before navigation (${getErrorMessage(error)})`;
+          this.logPdfDiagnostic(`PDF navigation aborted: ${reason}`);
+          return { ok: false, reason };
+        }
 
-      if (result.ok) return { ok: true };
-
-      // Older Chromium builds may not support --headless=new.
-      if (result.code !== 'ENOENT') {
-        const legacy = await runProcess(candidate, [
-          '--headless',
+        await fs
+          .rm(targetPdfUri.fsPath, { force: true })
+          .catch(() => undefined);
+        this.logPdfDiagnostic(
+          `Launching ${candidate} ${headlessMode}; navigating to ${htmlUrl}`
+        );
+        const sharedArgs = [
+          headlessMode,
           '--disable-gpu',
+          '--disable-background-networking',
+          '--disable-component-update',
+          '--disable-sync',
           '--no-first-run',
           '--no-default-browser-check',
           '--allow-file-access-from-files',
-          '--print-to-pdf-no-header',
+          '--run-all-compositor-stages-before-draw',
+          `--virtual-time-budget=${PDF_EXPORT_VIRTUAL_TIME_BUDGET_MS}`
+        ];
+        const navigationResult = await this.runHeadlessBrowser(candidate, [
+          ...sharedArgs,
+          '--dump-dom',
+          htmlUrl
+        ]);
+
+        this.logPdfDiagnostic(
+          `Navigation validation completed with status ${String(navigationResult.code)}${navigationResult.stderr.trim() ? `; stderr: ${summarizeProcessOutput(navigationResult.stderr)}` : ''}`
+        );
+
+        if (!navigationResult.ok) {
+          lastFailure = `${candidate} navigation validation exited with status ${String(navigationResult.code)}`;
+          if (navigationResult.code === 'ENOENT') {
+            break;
+          }
+          continue;
+        }
+
+        const navigationError = getPdfNavigationError(navigationResult.stdout);
+        if (navigationError) {
+          lastFailure = navigationError;
+          this.logPdfDiagnostic(`PDF navigation failed: ${navigationError}`);
+          break;
+        }
+
+        this.logPdfDiagnostic(
+          'PDF navigation succeeded and the rendered document reported its resources ready.'
+        );
+
+        const pdfResult = await this.runHeadlessBrowser(candidate, [
+          ...sharedArgs,
+          '--no-pdf-header-footer',
           `--print-to-pdf=${targetPdfUri.fsPath}`,
           htmlUrl
         ]);
-        if (legacy.ok) return { ok: true };
+        this.logPdfDiagnostic(
+          `PDF renderer completed with status ${String(pdfResult.code)}${pdfResult.stderr.trim() ? `; stderr: ${summarizeProcessOutput(pdfResult.stderr)}` : ''}`
+        );
+
+        if (!pdfResult.ok) {
+          lastFailure = `${candidate} PDF renderer exited with status ${String(pdfResult.code)}`;
+          if (pdfResult.code === 'ENOENT') {
+            break;
+          }
+          continue;
+        }
+
+        try {
+          const pdfStat = await fs.stat(targetPdfUri.fsPath);
+          if (pdfStat.size <= 0) {
+            lastFailure = 'Chromium produced an empty PDF';
+            continue;
+          }
+          this.logPdfDiagnostic(
+            `Staged PDF verified after renderer completion: ${pdfStat.size} bytes`
+          );
+          return { ok: true };
+        } catch (error) {
+          lastFailure = `Chromium did not produce the staged PDF (${getErrorMessage(error)})`;
+        }
       }
     }
 
-    return {
-      ok: false,
-      reason: 'no supported local Chrome/Edge/Chromium executable was found'
-    };
+    await fs.rm(targetPdfUri.fsPath, { force: true }).catch(() => undefined);
+    return { ok: false, reason: lastFailure };
+  }
+
+  private getHeadlessBrowserCandidates(): string[] {
+    return getHeadlessBrowserCandidates();
+  }
+
+  private runHeadlessBrowser(
+    command: string,
+    args: string[]
+  ): Promise<ProcessResult> {
+    return runProcess(command, args);
   }
 
   private async buildStandaloneHtml(
     bodyHtml: string,
     sourceUri: vscode.Uri,
     settings: RuntimeSettings,
-    themeVariables?: Record<string, string>
+    themeVariables?: Record<string, string>,
+    forPdf = false
   ): Promise<string> {
     const cssPath = vscode.Uri.joinPath(
       this.context.extensionUri,
@@ -1957,20 +2084,45 @@ ${bodyHtml}
 </div>
 </div>
 </article>`;
+    const pdfDocumentAttribute = forPdf ? ' data-omv-pdf-ready="pending"' : '';
+    const pdfDocumentMarker = forPdf ? `\n${PDF_EXPORT_DOCUMENT_MARKER}` : '';
+    const pdfReadinessScript = forPdf
+      ? `<script>
+(async () => {
+  if (document.readyState !== 'complete') {
+    await new Promise((resolve) => window.addEventListener('load', resolve, { once: true }));
+  }
+  const images = Array.from(document.images);
+  await Promise.all(images.map(async (image) => {
+    if (typeof image.decode === 'function') {
+      await image.decode().catch(() => undefined);
+    }
+  }));
+  if (document.fonts) {
+    await document.fonts.ready;
+  }
+  document.documentElement.setAttribute('data-omv-pdf-ready', 'true');
+})();
+</script>\n`
+      : '';
 
     return `<!DOCTYPE html>
-<html lang="en">
+<html lang="en"${pdfDocumentAttribute}>
 <head>
 <meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />${pdfDocumentMarker}
 <title>${escapeHtml(path.basename(sourceUri.fsPath))}</title>
 <style>${baseCss}</style>
 ${customCssTags}
 </head>
 <body class="${getExportThemeBodyClass()}">
 ${wrappedBodyHtml}
-</body>
+${pdfReadinessScript}</body>
 </html>`;
+  }
+
+  private logPdfDiagnostic(message: string): void {
+    this.output.appendLine(`[PDF ${new Date().toISOString()}] ${message}`);
   }
 
   dispose(): void {
@@ -2051,6 +2203,51 @@ function getErrorMessage(error: unknown): string {
   }
   const text = String(error ?? '').trim();
   return text || 'Unknown error';
+}
+
+export function buildPdfNavigationUrl(sourceHtmlUri: vscode.Uri): string {
+  if (sourceHtmlUri.scheme !== 'file') {
+    throw new Error(
+      `PDF renderer requires a local file URI, received ${sourceHtmlUri.scheme || 'an empty scheme'}`
+    );
+  }
+  // VS Code performs platform-aware file URI encoding here. Passing `true`
+  // would skip encoding and turn filename characters such as # and ? into URL
+  // fragments/queries when Chromium navigates to the temporary document.
+  return sourceHtmlUri.toString();
+}
+
+export function getPdfNavigationError(dumpedDom: string): string | undefined {
+  const normalized = dumpedDom.trim();
+  if (!normalized) {
+    return 'Chromium returned no document while validating PDF navigation';
+  }
+
+  if (
+    !normalized.includes(
+      'name="offline-markdown-preview-export" content="ready"'
+    )
+  ) {
+    const chromiumError = normalized.match(
+      /ERR_(?:FILE_NOT_FOUND|ACCESS_DENIED|INVALID_URL|FAILED)/i
+    )?.[0];
+    if (chromiumError) {
+      return `Chromium navigation failed with ${chromiumError}`;
+    }
+    return 'Chromium loaded a document other than the generated PDF export HTML';
+  }
+  if (!normalized.includes(PDF_EXPORT_READY_ATTRIBUTE)) {
+    return 'the exported document did not finish loading its images and fonts';
+  }
+  return undefined;
+}
+
+function summarizeProcessOutput(value: string): string {
+  const singleLine = value.replace(/\s+/g, ' ').trim();
+  if (singleLine.length <= 500) {
+    return singleLine;
+  }
+  return `${singleLine.slice(0, 497)}...`;
 }
 
 function isFileNotFoundError(error: unknown): boolean {
@@ -2145,14 +2342,17 @@ function getHeadlessBrowserCandidates(): string[] {
 async function runProcess(
   command: string,
   args: string[]
-): Promise<
-  { ok: true } | { ok: false; code: number | string; stderr?: string }
-> {
+): Promise<ProcessResult> {
   return new Promise((resolve) => {
+    let stdout = '';
     let stderr = '';
     let settled = false;
     const child = spawn(command, args, {
-      stdio: ['ignore', 'ignore', 'pipe']
+      stdio: ['ignore', 'pipe', 'pipe']
+    });
+
+    child.stdout?.on('data', (chunk: Buffer | string) => {
+      stdout += typeof chunk === 'string' ? chunk : chunk.toString('utf8');
     });
 
     child.stderr?.on('data', (chunk: Buffer | string) => {
@@ -2165,6 +2365,7 @@ async function runProcess(
       resolve({
         ok: false,
         code: error.code ?? 'ERROR',
+        stdout,
         stderr: error.message
       });
     });
@@ -2173,9 +2374,14 @@ async function runProcess(
       if (settled) return;
       settled = true;
       if (code === 0) {
-        resolve({ ok: true });
+        resolve({ ok: true, code, stdout, stderr });
       } else {
-        resolve({ ok: false, code: code ?? 'UNKNOWN', stderr });
+        resolve({
+          ok: false,
+          code: code ?? 'UNKNOWN',
+          stdout,
+          stderr
+        });
       }
     });
   });
