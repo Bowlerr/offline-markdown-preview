@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.4.0
+
+- Resolve percent-encoded local image paths, including filenames with spaces and reserved characters, while rejecting malformed or unsafe encoded separators
+- Make PDF export wait for images and fonts before rendering and validate that Chromium loaded the generated export document
+- Correct PDF export for Markdown filenames containing special characters such as `#` and `?`
+- Stage PDF output before writing through the VS Code filesystem API, clean up temporary files, and report actionable failures in the Offline Markdown Preview output channel
+
 ## 0.3.1
 
 - Keep the preview panel fixed in its current group while switching between Markdown files instead of re-revealing it on each file change
