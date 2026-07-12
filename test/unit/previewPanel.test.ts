@@ -1227,7 +1227,7 @@ describe('PreviewController custom CSS', () => {
     await controller.exportPdf();
 
     expect(fsMock.writeFile).toHaveBeenCalledWith(
-      '/tmp/omv-pdf-test/résumé #1.print.html',
+      path.join('/tmp/omv-pdf-test', 'résumé #1.print.html'),
       '<html>PDF fixture</html>',
       'utf8'
     );
