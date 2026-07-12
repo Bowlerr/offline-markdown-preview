@@ -69,6 +69,7 @@ interface ProcessResult {
 const PDF_EXPORT_DOCUMENT_MARKER =
   '<meta name="offline-markdown-preview-export" content="ready">';
 const PDF_EXPORT_READY_ATTRIBUTE = 'data-omv-pdf-ready="true"';
+const PDF_EXPORT_VIRTUAL_TIME_BUDGET_MS = 10_000;
 
 function withSvgFragment(url: string, uri: vscode.Uri): string {
   if (!uri.fragment || path.extname(uri.fsPath || uri.path).toLowerCase() !== '.svg') {
@@ -1912,7 +1913,7 @@ export class PreviewController implements vscode.Disposable {
     sourceHtmlUri: vscode.Uri,
     targetPdfUri: vscode.Uri
   ): Promise<{ ok: true } | { ok: false; reason: string }> {
-    const candidates = getHeadlessBrowserCandidates();
+    const candidates = this.getHeadlessBrowserCandidates();
     const htmlUrl = buildPdfNavigationUrl(sourceHtmlUri);
     let lastFailure =
       'no supported local Chrome, Edge, or Chromium executable was found';
@@ -1946,7 +1947,7 @@ export class PreviewController implements vscode.Disposable {
         this.logPdfDiagnostic(
           `Launching ${candidate} ${headlessMode}; navigating to ${htmlUrl}`
         );
-        const result = await runProcess(candidate, [
+        const sharedArgs = [
           headlessMode,
           '--disable-gpu',
           '--disable-background-networking',
@@ -1956,25 +1957,27 @@ export class PreviewController implements vscode.Disposable {
           '--no-default-browser-check',
           '--allow-file-access-from-files',
           '--run-all-compositor-stages-before-draw',
+          `--virtual-time-budget=${PDF_EXPORT_VIRTUAL_TIME_BUDGET_MS}`
+        ];
+        const navigationResult = await this.runHeadlessBrowser(candidate, [
+          ...sharedArgs,
           '--dump-dom',
-          '--print-to-pdf-no-header',
-          `--print-to-pdf=${targetPdfUri.fsPath}`,
           htmlUrl
         ]);
 
         this.logPdfDiagnostic(
-          `Renderer completed with status ${String(result.code)}${result.stderr.trim() ? `; stderr: ${summarizeProcessOutput(result.stderr)}` : ''}`
+          `Navigation validation completed with status ${String(navigationResult.code)}${navigationResult.stderr.trim() ? `; stderr: ${summarizeProcessOutput(navigationResult.stderr)}` : ''}`
         );
 
-        if (!result.ok) {
-          if (result.code === 'ENOENT') {
+        if (!navigationResult.ok) {
+          lastFailure = `${candidate} navigation validation exited with status ${String(navigationResult.code)}`;
+          if (navigationResult.code === 'ENOENT') {
             break;
           }
-          lastFailure = `${candidate} exited with status ${String(result.code)}`;
           continue;
         }
 
-        const navigationError = getPdfNavigationError(result.stdout);
+        const navigationError = getPdfNavigationError(navigationResult.stdout);
         if (navigationError) {
           lastFailure = navigationError;
           this.logPdfDiagnostic(`PDF navigation failed: ${navigationError}`);
@@ -1984,6 +1987,24 @@ export class PreviewController implements vscode.Disposable {
         this.logPdfDiagnostic(
           'PDF navigation succeeded and the rendered document reported its resources ready.'
         );
+
+        const pdfResult = await this.runHeadlessBrowser(candidate, [
+          ...sharedArgs,
+          '--no-pdf-header-footer',
+          `--print-to-pdf=${targetPdfUri.fsPath}`,
+          htmlUrl
+        ]);
+        this.logPdfDiagnostic(
+          `PDF renderer completed with status ${String(pdfResult.code)}${pdfResult.stderr.trim() ? `; stderr: ${summarizeProcessOutput(pdfResult.stderr)}` : ''}`
+        );
+
+        if (!pdfResult.ok) {
+          lastFailure = `${candidate} PDF renderer exited with status ${String(pdfResult.code)}`;
+          if (pdfResult.code === 'ENOENT') {
+            break;
+          }
+          continue;
+        }
 
         try {
           const pdfStat = await fs.stat(targetPdfUri.fsPath);
@@ -2003,6 +2024,17 @@ export class PreviewController implements vscode.Disposable {
 
     await fs.rm(targetPdfUri.fsPath, { force: true }).catch(() => undefined);
     return { ok: false, reason: lastFailure };
+  }
+
+  private getHeadlessBrowserCandidates(): string[] {
+    return getHeadlessBrowserCandidates();
+  }
+
+  private runHeadlessBrowser(
+    command: string,
+    args: string[]
+  ): Promise<ProcessResult> {
+    return runProcess(command, args);
   }
 
   private async buildStandaloneHtml(

@@ -1192,6 +1192,128 @@ describe('PreviewController custom CSS', () => {
     ).toBeUndefined();
   });
 
+  it('validates PDF navigation before printing with separate Chromium actions', async () => {
+    const { module } = await loadPreviewPanelTestModule({
+      workspaceFolderPaths: ['/workspace-a']
+    });
+    const controller = new module.PreviewController({
+      extensionUri: Uri.file('/extension'),
+      globalStorageUri: Uri.file('/global-storage')
+    } as any);
+    const runHeadlessBrowser = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        code: 0,
+        stdout:
+          '<html data-omv-pdf-ready="true"><head><meta name="offline-markdown-preview-export" content="ready"></head></html>',
+        stderr: ''
+      })
+      .mockResolvedValueOnce({ ok: true, code: 0, stdout: '', stderr: '' });
+    (controller as any).getHeadlessBrowserCandidates = () => ['chromium'];
+    (controller as any).runHeadlessBrowser = runHeadlessBrowser;
+    const sourceUri = Uri.file('/tmp/source with spaces.html');
+    const targetUri = Uri.file('/tmp/rendered.pdf');
+
+    const result = await (controller as any).tryHeadlessPdfExport(
+      sourceUri,
+      targetUri
+    );
+
+    expect(result).toEqual({ ok: true });
+    expect(runHeadlessBrowser).toHaveBeenCalledTimes(2);
+    const navigationArgs = runHeadlessBrowser.mock.calls[0]?.[1] as string[];
+    const pdfArgs = runHeadlessBrowser.mock.calls[1]?.[1] as string[];
+    const sharedFlags = [
+      '--allow-file-access-from-files',
+      '--run-all-compositor-stages-before-draw',
+      '--virtual-time-budget=10000'
+    ];
+    expect(navigationArgs).toEqual(expect.arrayContaining(sharedFlags));
+    expect(navigationArgs).toContain('--dump-dom');
+    expect(navigationArgs).not.toContain('--no-pdf-header-footer');
+    expect(
+      navigationArgs.some((arg) => arg.startsWith('--print-to-pdf='))
+    ).toBe(false);
+    expect(pdfArgs).toEqual(expect.arrayContaining(sharedFlags));
+    expect(pdfArgs).not.toContain('--dump-dom');
+    expect(pdfArgs).toContain('--no-pdf-header-footer');
+    expect(pdfArgs).toContain(`--print-to-pdf=${targetUri.fsPath}`);
+    expect(navigationArgs.at(-1)).toBe(sourceUri.toString());
+    expect(pdfArgs.at(-1)).toBe(sourceUri.toString());
+  });
+
+  it('does not print when Chromium navigation validation fails', async () => {
+    const { module } = await loadPreviewPanelTestModule({
+      workspaceFolderPaths: ['/workspace-a']
+    });
+    const controller = new module.PreviewController({
+      extensionUri: Uri.file('/extension'),
+      globalStorageUri: Uri.file('/global-storage')
+    } as any);
+    const runHeadlessBrowser = vi.fn().mockResolvedValue({
+      ok: true,
+      code: 0,
+      stdout: '<html>ERR_FILE_NOT_FOUND</html>',
+      stderr: ''
+    });
+    (controller as any).getHeadlessBrowserCandidates = () => ['chromium'];
+    (controller as any).runHeadlessBrowser = runHeadlessBrowser;
+
+    const result = await (controller as any).tryHeadlessPdfExport(
+      Uri.file('/tmp/missing.html'),
+      Uri.file('/tmp/rendered.pdf')
+    );
+
+    expect(result).toEqual({
+      ok: false,
+      reason: 'Chromium navigation failed with ERR_FILE_NOT_FOUND'
+    });
+    expect(runHeadlessBrowser).toHaveBeenCalledTimes(1);
+    const args = runHeadlessBrowser.mock.calls[0]?.[1] as string[];
+    expect(args).toContain('--dump-dom');
+    expect(args.some((arg) => arg.startsWith('--print-to-pdf='))).toBe(false);
+  });
+
+  it('reports PDF renderer failure without accepting staged output', async () => {
+    const { fsMock, module } = await loadPreviewPanelTestModule({
+      workspaceFolderPaths: ['/workspace-a']
+    });
+    const controller = new module.PreviewController({
+      extensionUri: Uri.file('/extension'),
+      globalStorageUri: Uri.file('/global-storage')
+    } as any);
+    const runHeadlessBrowser = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        code: 0,
+        stdout:
+          '<html data-omv-pdf-ready="true"><head><meta name="offline-markdown-preview-export" content="ready"></head></html>',
+        stderr: ''
+      })
+      .mockResolvedValueOnce({
+        ok: false,
+        code: 'ENOENT',
+        stdout: '',
+        stderr: 'renderer unavailable'
+      });
+    (controller as any).getHeadlessBrowserCandidates = () => ['chromium'];
+    (controller as any).runHeadlessBrowser = runHeadlessBrowser;
+
+    const result = await (controller as any).tryHeadlessPdfExport(
+      Uri.file('/tmp/source.html'),
+      Uri.file('/tmp/rendered.pdf')
+    );
+
+    expect(result).toEqual({
+      ok: false,
+      reason: 'chromium PDF renderer exited with status ENOENT'
+    });
+    expect(runHeadlessBrowser).toHaveBeenCalledTimes(2);
+    expect(fsMock.stat).not.toHaveBeenCalled();
+  });
+
   it('stages a successful PDF and cleans temporary files after copying it', async () => {
     const { fsMock, module, vscodeMock, workspaceWriteFile } =
       await loadPreviewPanelTestModule({
