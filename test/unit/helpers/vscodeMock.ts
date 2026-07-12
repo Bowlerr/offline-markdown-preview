@@ -22,6 +22,15 @@ function toFsPath(uriPath: string): string {
   return /^\/[A-Za-z]:\//.test(uriPath) ? uriPath.slice(1) : uriPath;
 }
 
+function encodeUriPath(uriPath: string): string {
+  return uriPath
+    .split('/')
+    .map((segment) =>
+      encodeURIComponent(segment).replace(/%3A/gi, ':').replace(/%40/gi, '@')
+    )
+    .join('/');
+}
+
 export class Uri {
   constructor(
     public readonly scheme: string,
@@ -35,20 +44,20 @@ export class Uri {
   static file(fsPath: string): Uri {
     const normalizedFsPath = normalizeSlashes(fsPath);
     const uriPath = toUriPath(normalizedFsPath);
-    return new Uri('file', normalizedFsPath, uriPath, `file://${uriPath}`);
+    return new Uri('file', normalizedFsPath, uriPath, `file://${encodeUriPath(uriPath)}`);
   }
 
   static parse(input: string): Uri {
     if (input.startsWith('file://')) {
       const match = /^file:\/\/([^?#]*)(?:\?([^#]*))?(?:#(.*))?$/i.exec(input);
-      const uriPath = normalizeSlashes(match?.[1] ?? '');
+      const uriPath = decodeURIComponent(normalizeSlashes(match?.[1] ?? ''));
       const fsPath = toFsPath(uriPath);
       const query = match?.[2] ?? '';
       const fragment = match?.[3] ?? '';
       return new Uri('file', fsPath, uriPath, input, query, fragment);
     }
     if (/^https?:\/\//i.test(input)) {
-      return new Uri(input.split(':')[0], '', '', input);
+      return new Uri(input.slice(0, input.indexOf(':')), '', '', input);
     }
     return Uri.file(input);
   }
@@ -59,7 +68,7 @@ export class Uri {
       'file',
       toFsPath(nextUriPath),
       nextUriPath,
-      `file://${nextUriPath}`
+      `file://${encodeUriPath(nextUriPath)}`
     );
   }
 
@@ -67,7 +76,7 @@ export class Uri {
     const nextPath = update.path ?? this.path;
     const base =
       this.scheme === 'file'
-        ? `file://${nextPath}`
+        ? `file://${encodeUriPath(nextPath)}`
         : `${this.scheme}:${nextPath}`;
     const nextQuery = update.query ?? this.query;
     const nextFragment = update.fragment ?? this.fragment;

@@ -21,9 +21,12 @@ test.describe('preview features (VS Code)', () => {
     const linkedSubdoc = await readWorkspaceMarkdown(workspace, 'sub/linked-subdoc.md');
     const mermaidEdgeCases = await readWorkspaceMarkdown(workspace, 'mermaid-edge-cases.md');
     const remoteImages = await readWorkspaceMarkdown(workspace, 'remote-images.md');
+    const imagePaths = await readWorkspaceMarkdown(workspace, 'image-paths.md');
 
     await access(join(workspace, 'assets/banner.svg'));
     await access(join(workspace, 'assets/grid.svg'));
+    await access(join(workspace, 'assets/normal-image.svg'));
+    await access(join(workspace, 'assets/name with spaces.svg'));
 
     expect(sample).toContain('# Sample');
     expect(sample).toContain('## Mermaid');
@@ -48,6 +51,10 @@ test.describe('preview features (VS Code)', () => {
     expect(remoteImages).toContain('# Remote Images Fixture');
     expect(remoteImages).toContain('offlineMarkdownViewer.preview.allowRemoteImages = false');
     expect(remoteImages).toContain('Download Image');
+    expect(imagePaths).toContain('](./assets/normal-image.svg)');
+    expect(imagePaths).toContain('](./assets/name%20with%20spaces.svg)');
+    expect(imagePaths).toContain('](<./assets/name with spaces.svg>)');
+    expect(imagePaths).toContain('[image-with-spaces]: ./assets/name%20with%20spaces.svg');
 
     const remoteImageLinks = extractMarkdownImageLinks(remoteImages).filter((link) => isHttpUrl(link));
     expect(remoteImageLinks).toEqual(

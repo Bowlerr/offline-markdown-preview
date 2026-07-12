@@ -54,6 +54,66 @@ describe('markdownPipeline', () => {
     expect(result.html).toContain('footnote');
   });
 
+  it('resolves encoded, angle-bracket, and reference-style local image destinations', () => {
+    const sourceUri = Uri.file('/workspace/docs/readme.md');
+    const webview = {
+      asWebviewUri(uri: { toString(): string }) {
+        return { toString: () => `vscode-webview://${uri.toString()}` };
+      }
+    };
+    const input = [
+      '![encoded](name%20with%20spaces.png)',
+      '',
+      '![angle](<name with spaces.png>)',
+      '',
+      '![reference][spaced-image]',
+      '',
+      '[spaced-image]: nested/name%20with%20spaces.png'
+    ].join('\n');
+
+    const result = renderMarkdown(input, {
+      sourceUri,
+      webview: webview as any,
+      allowHtml: true,
+      allowRemoteImages: false,
+      maxImageMB: 8
+    });
+
+    expect(
+      String(result.html).match(
+        /data-omv-local-src="file:\/\/\/workspace\/docs\/name%20with%20spaces\.png"/g
+      )
+    ).toHaveLength(2);
+    expect(result.html).toContain(
+      'data-omv-local-src="file:///workspace/docs/nested/name%20with%20spaces.png"'
+    );
+  });
+
+  it('leaves allowed HTTP and HTTPS image URLs unchanged', () => {
+    const sourceUri = Uri.file('/workspace/docs/readme.md');
+    const webview = {
+      asWebviewUri(uri: { toString(): string }) {
+        return { toString: () => `vscode-webview://${uri.toString()}` };
+      }
+    };
+    const input = [
+      '![http](http://example.com/name%20one.png)',
+      '![https](https://example.com/name%20two.png)'
+    ].join('\n\n');
+
+    const result = renderMarkdown(input, {
+      sourceUri,
+      webview: webview as any,
+      allowHtml: true,
+      allowRemoteImages: true,
+      maxImageMB: 8
+    });
+
+    expect(result.html).toContain('src="http://example.com/name%20one.png"');
+    expect(result.html).toContain('src="https://example.com/name%20two.png"');
+    expect(result.html).not.toContain('data-omv-local-src=');
+  });
+
   it('parses inline and multiline display math placeholders', () => {
     const sourceUri = Uri.file('/workspace/docs/math.md');
     const webview = {

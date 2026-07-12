@@ -101,6 +101,22 @@ function restoreSvgFragment(
   return uri.with({ fragment });
 }
 
+function decodeLocalImagePath(rawPath: string): string | undefined {
+  // Encoded separators must not become new path boundaries during URI decoding.
+  if (/%(?:2f|5c)/i.test(rawPath)) {
+    return undefined;
+  }
+
+  try {
+    return rawPath
+      .split('/')
+      .map((segment) => decodeURIComponent(segment))
+      .join('/');
+  } catch {
+    return undefined;
+  }
+}
+
 export function resolveImageUri(source: vscode.Uri, src: string): vscode.Uri | undefined {
   const { normalizedSrc, fragment } = stripLocalImageUrlDecoration(src);
   if (
@@ -113,14 +129,26 @@ export function resolveImageUri(source: vscode.Uri, src: string): vscode.Uri | u
   }
   const sourceFolder = vscode.workspace.getWorkspaceFolder(source);
   if (/^file:/i.test(normalizedSrc)) {
-    const parsed = vscode.Uri.parse(normalizedSrc, true);
-    const resolved = restoreSvgFragment(parsed, fragment);
-    if (!sourceFolder) return resolved;
-    return isWithinWorkspace(parsed, sourceFolder.uri) ? resolved : undefined;
+    if (/%(?:2f|5c)/i.test(normalizedSrc)) {
+      return undefined;
+    }
+    try {
+      const parsed = vscode.Uri.parse(normalizedSrc, true);
+      const resolved = restoreSvgFragment(parsed, fragment);
+      if (!sourceFolder) return resolved;
+      return isWithinWorkspace(parsed, sourceFolder.uri) ? resolved : undefined;
+    } catch {
+      return undefined;
+    }
+  }
+
+  const decodedPath = decodeLocalImagePath(normalizedSrc);
+  if (decodedPath === undefined) {
+    return undefined;
   }
   const resolvedBase = vscode.Uri.joinPath(
     source.with({ path: path.posix.dirname(source.path) }),
-    normalizedSrc
+    decodedPath
   );
   const resolved = restoreSvgFragment(resolvedBase, fragment);
   if (!sourceFolder) return resolved;
