@@ -87,6 +87,7 @@ function createPreviewPanelTestContext(options: {
   autoOpenPreview?: boolean;
   quickPickLabel?: string;
   openDialogPath?: string;
+  saveDialogPath?: string;
   customCssUris?: InstanceType<typeof Uri>[];
   baseCssText?: string;
   initialPreviewUiState?: {
@@ -117,6 +118,7 @@ function createPreviewPanelTestContext(options: {
   const visibleRangesChange = createEventHook<unknown>();
   const update = vi.fn().mockResolvedValue(undefined);
   const showInformationMessage = vi.fn().mockResolvedValue(undefined);
+  const showErrorMessage = vi.fn().mockResolvedValue(undefined);
   const showWarningMessage = vi.fn().mockResolvedValue(undefined);
   const showOpenDialog = vi
     .fn()
@@ -127,6 +129,11 @@ function createPreviewPanelTestContext(options: {
     key === 'preview.uiState' ? options.initialPreviewUiState : undefined
   );
   const globalStateUpdate = vi.fn().mockResolvedValue(undefined);
+  const outputChannel = {
+    appendLine: vi.fn(),
+    dispose: vi.fn()
+  };
+  const workspaceWriteFile = vi.fn().mockResolvedValue(undefined);
 
   let activeTextEditor = options.activeEditorPath
     ? createTextEditor(options.activeEditorPath, {
@@ -213,6 +220,9 @@ function createPreviewPanelTestContext(options: {
       : undefined,
     workspaceFolders,
     textDocuments: [],
+    fs: {
+      writeFile: workspaceWriteFile
+    },
     getWorkspaceFolder(uri: InstanceType<typeof Uri>) {
       return workspaceFolders.find((folder) => {
         const relative = path.relative(folder.uri.fsPath, uri.fsPath);
@@ -271,9 +281,16 @@ function createPreviewPanelTestContext(options: {
       createWebviewPanel,
       showQuickPick,
       showOpenDialog,
+      showSaveDialog: vi
+        .fn()
+        .mockResolvedValue(
+          options.saveDialogPath ? Uri.file(options.saveDialogPath) : undefined
+        ),
       showInformationMessage,
+      showErrorMessage,
       showTextDocument,
       showWarningMessage,
+      createOutputChannel: vi.fn(() => outputChannel),
       onDidChangeActiveTextEditor: (listener: Listener<unknown>) =>
         activeEditorChange.register(listener),
       onDidChangeTextEditorVisibleRanges: (listener: Listener<unknown>) =>
@@ -346,6 +363,10 @@ function createPreviewPanelTestContext(options: {
   };
 
   const fsMock = {
+    access: vi.fn().mockResolvedValue(undefined),
+    mkdtemp: vi.fn().mockResolvedValue('/tmp/omv-pdf-test'),
+    writeFile: vi.fn().mockResolvedValue(undefined),
+    rm: vi.fn().mockResolvedValue(undefined),
     stat: vi.fn().mockResolvedValue({ size: 1024 }),
     readFile: vi
       .fn()
@@ -363,6 +384,7 @@ function createPreviewPanelTestContext(options: {
       get: globalStateGet,
       update: globalStateUpdate
     },
+    outputChannel,
     renderMarkdown: vi.fn(() => ({
       html: '<p>Rendered</p>',
       toc: [],
@@ -371,7 +393,8 @@ function createPreviewPanelTestContext(options: {
     })),
     securityMock,
     update,
-    vscodeMock
+    vscodeMock,
+    workspaceWriteFile
   };
 }
 
@@ -899,6 +922,36 @@ describe('PreviewController custom CSS', () => {
     expect(html.indexOf('<style data-omv-custom-css="1">')).toBeLessThan(
       html.indexOf('<style data-omv-custom-css="2">')
     );
+    expect(html).not.toContain('offline-markdown-preview-export');
+    expect(html).not.toContain('data-omv-pdf-ready');
+  });
+
+  it('builds PDF HTML that waits for local images and fonts', async () => {
+    const { module } = await loadPreviewPanelTestModule({
+      workspaceFolderPaths: ['/workspace-a']
+    });
+    const controller = new module.PreviewController({
+      extensionUri: Uri.file('/extension'),
+      globalStorageUri: Uri.file('/global-storage')
+    } as any);
+
+    const html = await (controller as any).buildStandaloneHtml(
+      '<img src="file:///workspace-a/assets/name%20with%20spaces.svg" alt="fixture" />',
+      Uri.file('/workspace-a/nested/résumé #1.md'),
+      { showFrontmatter: false, useMarkdownPreviewGithubStyling: false },
+      undefined,
+      true
+    );
+
+    expect(html).toContain(
+      '<meta name="offline-markdown-preview-export" content="ready">'
+    );
+    expect(html).toContain('data-omv-pdf-ready="pending"');
+    expect(html).toContain('await image.decode()');
+    expect(html).toContain('await document.fonts.ready');
+    expect(html).toContain(
+      'src="file:///workspace-a/assets/name%20with%20spaces.svg"'
+    );
   });
 
   it('rewrites local image sources for export regardless of attribute order', async () => {
@@ -1078,6 +1131,158 @@ describe('PreviewController custom CSS', () => {
     expect(globalState.update).toHaveBeenCalledWith('preview.uiState', {
       searchUiVisible: false,
       tocVisible: true
+    });
+  });
+
+  it('passes normal, nested, spaced, encoded, and non-ASCII paths as encoded file URIs', async () => {
+    const { module } = await loadPreviewPanelTestModule({
+      workspaceFolderPaths: ['/workspace-a']
+    });
+
+    expect(
+      module.buildPdfNavigationUrl(
+        Uri.file('/tmp/normal/nested/doc.print.html') as any
+      )
+    ).toBe('file:///tmp/normal/nested/doc.print.html');
+
+    const specialUrl = module.buildPdfNavigationUrl(
+      Uri.file(
+        '/tmp/folder with spaces/nested/résumé #100% %20.print.html'
+      ) as any
+    );
+    expect(specialUrl).toBe(
+      'file:///tmp/folder%20with%20spaces/nested/r%C3%A9sum%C3%A9%20%23100%25%20%2520.print.html'
+    );
+
+    const windowsUrl = module.buildPdfNavigationUrl(
+      Uri.file('C:\\Users\\Jane Doe\\nested\\résumé #1.print.html') as any
+    );
+    expect(windowsUrl).toBe(
+      'file:///C:/Users/Jane%20Doe/nested/r%C3%A9sum%C3%A9%20%231.print.html'
+    );
+  });
+
+  it('identifies Chromium navigation and resource readiness failures', async () => {
+    const { module } = await loadPreviewPanelTestModule({
+      workspaceFolderPaths: ['/workspace-a']
+    });
+
+    expect(
+      module.getPdfNavigationError('<html>ERR_FILE_NOT_FOUND</html>')
+    ).toBe('Chromium navigation failed with ERR_FILE_NOT_FOUND');
+    expect(
+      module.getPdfNavigationError('<html><p>Different page</p></html>')
+    ).toBe(
+      'Chromium loaded a document other than the generated PDF export HTML'
+    );
+    expect(
+      module.getPdfNavigationError(
+        '<html data-omv-pdf-ready="pending"><head><meta name="offline-markdown-preview-export" content="ready"></head></html>'
+      )
+    ).toBe('the exported document did not finish loading its images and fonts');
+    expect(
+      module.getPdfNavigationError(
+        '<html data-omv-pdf-ready="true"><head><meta name="offline-markdown-preview-export" content="ready"></head></html>'
+      )
+    ).toBeUndefined();
+    expect(
+      module.getPdfNavigationError(
+        '<html data-omv-pdf-ready="true"><head><meta name="offline-markdown-preview-export" content="ready"></head><body><code>ERR_FILE_NOT_FOUND</code></body></html>'
+      )
+    ).toBeUndefined();
+  });
+
+  it('stages a successful PDF and cleans temporary files after copying it', async () => {
+    const { fsMock, module, vscodeMock, workspaceWriteFile } =
+      await loadPreviewPanelTestModule({
+        workspaceFolderPaths: ['/workspace-a'],
+        saveDialogPath: '/workspace-a/output with spaces.pdf'
+      });
+    const controller = new module.PreviewController({
+      extensionUri: Uri.file('/extension'),
+      globalStorageUri: Uri.file('/global-storage')
+    } as any);
+    (controller as any).currentEditor = createTextEditor(
+      '/workspace-a/nested/résumé #1.md'
+    );
+    (controller as any).panel = { webview: { postMessage: vi.fn() } };
+    (controller as any).state = {
+      snapshot: {
+        uri: Uri.file('/workspace-a/nested/résumé #1.md'),
+        html: '<p>Rendered</p>'
+      },
+      toc: []
+    };
+    (controller as any).requestRenderedHtmlExportSnapshot = vi
+      .fn()
+      .mockResolvedValue(undefined);
+    (controller as any).buildStandaloneHtml = vi
+      .fn()
+      .mockResolvedValue('<html>PDF fixture</html>');
+    (controller as any).tryHeadlessPdfExport = vi
+      .fn()
+      .mockResolvedValue({ ok: true });
+    fsMock.readFile.mockResolvedValueOnce(Buffer.from('%PDF fixture'));
+
+    await controller.exportPdf();
+
+    expect(fsMock.writeFile).toHaveBeenCalledWith(
+      '/tmp/omv-pdf-test/résumé #1.print.html',
+      '<html>PDF fixture</html>',
+      'utf8'
+    );
+    expect(workspaceWriteFile).toHaveBeenCalledWith(
+      Uri.file('/workspace-a/output with spaces.pdf'),
+      Buffer.from('%PDF fixture')
+    );
+    expect(fsMock.rm).toHaveBeenLastCalledWith('/tmp/omv-pdf-test', {
+      recursive: true,
+      force: true
+    });
+    expect(vscodeMock.window.showInformationMessage).toHaveBeenCalledWith(
+      'Exported PDF to /workspace-a/output with spaces.pdf'
+    );
+  });
+
+  it('reports renderer navigation failures and cleans temporary files without replacing the target', async () => {
+    const { fsMock, module, vscodeMock, workspaceWriteFile } =
+      await loadPreviewPanelTestModule({
+        workspaceFolderPaths: ['/workspace-a'],
+        saveDialogPath: '/workspace-a/existing.pdf'
+      });
+    const controller = new module.PreviewController({
+      extensionUri: Uri.file('/extension'),
+      globalStorageUri: Uri.file('/global-storage')
+    } as any);
+    (controller as any).currentEditor = createTextEditor('/workspace-a/doc.md');
+    (controller as any).panel = { webview: { postMessage: vi.fn() } };
+    (controller as any).state = {
+      snapshot: {
+        uri: Uri.file('/workspace-a/doc.md'),
+        html: '<p>Rendered</p>'
+      },
+      toc: []
+    };
+    (controller as any).requestRenderedHtmlExportSnapshot = vi
+      .fn()
+      .mockResolvedValue(undefined);
+    (controller as any).buildStandaloneHtml = vi
+      .fn()
+      .mockResolvedValue('<html>PDF fixture</html>');
+    (controller as any).tryHeadlessPdfExport = vi.fn().mockResolvedValue({
+      ok: false,
+      reason: 'Chromium navigation failed with ERR_FILE_NOT_FOUND'
+    });
+
+    await controller.exportPdf();
+
+    expect(workspaceWriteFile).not.toHaveBeenCalled();
+    expect(vscodeMock.window.showErrorMessage).toHaveBeenCalledWith(
+      'PDF export failed: Chromium navigation failed with ERR_FILE_NOT_FOUND. See the Offline Markdown Preview output for details.'
+    );
+    expect(fsMock.rm).toHaveBeenLastCalledWith('/tmp/omv-pdf-test', {
+      recursive: true,
+      force: true
     });
   });
 });

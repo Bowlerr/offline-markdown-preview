@@ -93,8 +93,8 @@ export class Uri {
     );
   }
 
-  toString(): string {
-    return this.raw;
+  toString(skipEncoding = false): string {
+    return skipEncoding ? decodeURIComponent(this.raw) : this.raw;
   }
 }
 
