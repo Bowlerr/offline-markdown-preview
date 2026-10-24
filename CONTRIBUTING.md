@@ -24,7 +24,7 @@ Use the Node version in `.nvmrc` (`nvm use`), then `npm ci`. npm and `package-lo
 
 Run `npm run check` for lint, strict TypeScript checking, unit tests, and the production build. Run `npm run watch` for readable development bundles.
 
-`npm run test:e2e` launches a real VS Code instance with an isolated temporary profile and workspace. It exercises rendering, keyboard navigation, search, live edits, offline behavior, and HTML/PDF export. Install the test browser with `npx playwright install chromium`; use `xvfb-run -a npm run test:e2e` on headless Linux. A missing display or failed application launch fails the suite.
+`npm run test:e2e` launches a real VS Code instance with an isolated temporary profile and workspace. It exercises rendering, keyboard navigation, search, live edits, offline behavior, and HTML/PDF export. Install the test browser with `npx playwright install chromium`; use `xvfb-run -a --server-args="-screen 0 1920x1080x24" npm run test:e2e` on headless Linux. A missing display or failed application launch fails the suite.
 
 Set `VSCODE_EXECUTABLE_PATH` to test an existing VS Code executable, or `OMV_E2E_VSCODE_VERSION` to download a specific version. E2E traces and screenshots are written under `test-results/e2e`.
 

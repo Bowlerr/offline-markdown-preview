@@ -513,7 +513,8 @@ function buildMermaidThemeConfig(themeRoot: HTMLElement): {
     fontSize: `${Math.max(13, Math.round(bodyFontSize))}px`,
     background: editorBg,
     textColor: fg,
-    lineColor: strongBorder,
+    // Connectors carry diagram meaning and need text-level contrast, not divider colors.
+    lineColor: fg,
     // Keep Mermaid's generic edge/label backgrounds transparent; flowchart edge labels are styled
     // separately via scoped CSS so sequence/class labels don't get unintended fills.
     edgeLabelBackground: transparent,
@@ -763,7 +764,22 @@ function applyContentTheme(themeRoot: HTMLElement): void {
 }
 
 function collectThemeVariables(themeRoot: HTMLElement): Record<string, string> {
-  const variables: Record<string, string> = {};
+  const rootStyle = getComputedStyle(themeRoot);
+  const bodyStyle = getComputedStyle(document.body);
+  // Standalone exports have no VS Code theme variables. Preserve the palette
+  // behind translucent diagram/code surfaces as well as their captured colors.
+  const variables: Record<string, string> = {
+    '--omv-bg': firstOpaqueColor(
+      rootStyle.backgroundColor,
+      bodyStyle.backgroundColor,
+      'rgb(30, 30, 30)'
+    ),
+    '--omv-fg': firstDefinedColor(
+      rootStyle.color,
+      bodyStyle.color,
+      'rgb(204, 204, 204)'
+    )
+  };
   for (const name of computedThemeVarNames) {
     const value = themeRoot.style.getPropertyValue(name).trim();
     if (value) {

@@ -2,6 +2,7 @@ import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
 import { expect, test } from './vscodeFixture';
+import { expectReadableFlowchart } from './diagramAssertions';
 
 test(
   'limits very large search results and restores original content',
@@ -52,6 +53,7 @@ test('renders local Markdown, Mermaid, math, and images without remote image req
   await expect(preview.locator('h1')).toContainText('Release Journey');
   await expect(preview.locator('.katex')).toHaveCount(2);
   await expect(preview.locator('.omv-mermaid svg')).toBeVisible();
+  await expectReadableFlowchart(preview.locator('.omv-mermaid'));
   const image = preview.getByAltText('Local test image');
   await image.scrollIntoViewIfNeeded();
   await expect
@@ -185,15 +187,29 @@ test('diagram controls support named buttons and keyboard panning', async ({
     await preview.getByRole('button', { name: 'Zoom in', exact: true }).click();
   }
   const canvas = preview.locator('.omv-mermaid-canvas');
+  const scale = () =>
+    canvas.evaluate(
+      (element) => new DOMMatrix(getComputedStyle(element).transform).a
+    );
+  await expect.poll(scale).toBeGreaterThan(1);
   const original = await canvas.getAttribute('style');
   await viewport.focus();
   await viewport.press('ArrowRight');
   await expect(viewport).toBeFocused();
   await expect(canvas).not.toHaveAttribute('style', original ?? '');
+  const afterKeyboardPan = await canvas.getAttribute('style');
   await preview.getByRole('button', { name: 'Pan left', exact: true }).click();
+  await expect(canvas).not.toHaveAttribute('style', afterKeyboardPan ?? '');
+  await preview
+    .getByRole('button', { name: 'Reset diagram to 100% size', exact: true })
+    .click();
+  await expect.poll(scale).toBe(1);
+  await preview.getByRole('button', { name: 'Zoom in', exact: true }).click();
+  await expect.poll(scale).toBeGreaterThan(1);
   await preview
     .getByRole('button', { name: 'Fit diagram to viewport', exact: true })
     .click();
+  await expect.poll(scale).toBeLessThanOrEqual(1);
   await expect(preview.locator('.omv-mermaid svg')).toBeVisible();
 });
 

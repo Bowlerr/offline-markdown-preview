@@ -894,6 +894,8 @@ describe('PreviewController custom CSS', () => {
       },
       {
         '--omv-active-pre-bg': 'rgb(1, 2, 3)',
+        '--omv-bg': 'rgb(30, 30, 30)',
+        '--omv-fg': 'rgb(204, 204, 204)',
         '--omv-mermaid-border': 'rgb(4, 5, 6)'
       }
     );
@@ -912,10 +914,10 @@ describe('PreviewController custom CSS', () => {
       '<style data-omv-custom-css="2">@import url("https://example.com/theme.css");</style>'
     );
     expect(html).toContain(
-      '<div class="omv-content markdown-body github-markdown-body" data-color-mode="light" data-light-theme="light" data-dark-theme="dark" style="--omv-active-pre-bg: rgb(1, 2, 3); --omv-mermaid-border: rgb(4, 5, 6);">'
+      '<div class="omv-content markdown-body github-markdown-body" data-color-mode="light" data-light-theme="light" data-dark-theme="dark" style="--omv-active-pre-bg: rgb(1, 2, 3); --omv-bg: rgb(30, 30, 30); --omv-fg: rgb(204, 204, 204); --omv-mermaid-border: rgb(4, 5, 6);">'
     );
     expect(html).toContain('<div class="github-markdown-content">');
-    expect(html).toContain('<body class="vscode-body vscode-dark">');
+    expect(html).toContain('<body class="vscode-body vscode-dark" style="--omv-active-pre-bg: rgb(1, 2, 3); --omv-bg: rgb(30, 30, 30); --omv-fg: rgb(204, 204, 204); --omv-mermaid-border: rgb(4, 5, 6);">');
     expect(html).toContain(
       '<div class="github-markdown-content">\n<p>Rendered</p>\n</div>'
     );

@@ -2261,7 +2261,7 @@ ${bodyHtml}
 <style>${baseCss}</style>
 ${customCssTags}
 </head>
-<body class="${getExportThemeBodyClass()}">
+<body class="${getExportThemeBodyClass()}"${themeStyleAttribute}>
 ${wrappedBodyHtml}
 ${pdfReadinessScript}</body>
 </html>`;

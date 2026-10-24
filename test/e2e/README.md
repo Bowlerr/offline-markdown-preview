@@ -11,7 +11,9 @@ npx playwright install chromium
 npm run test:e2e
 ```
 
-On headless Linux, use `xvfb-run -a npm run test:e2e`. PDF export additionally
+On headless Linux, use `xvfb-run -a -s '-screen 0 1920x1080x24' npm run test:e2e`.
+The suite resizes the real VS Code window to 1440×1000; the virtual display must
+fit the window so pointer input reaches every preview control. PDF export additionally
 requires an installed Chrome, Chromium, or Edge executable discoverable by the
 extension. GitHub's Ubuntu runner includes Google Chrome.
 
@@ -31,7 +33,8 @@ extension path is omitted, so the journeys exercise the installed artifact and
 cannot accidentally load the repository's build instead.
 
 Coverage includes local images, blocked remote images, sanitization, math,
-Mermaid flowchart/sequence/class diagrams and math labels, search across inline
+Mermaid flowchart/sequence/class diagrams and math labels, rendered flowchart
+connector and arrow contrast in the preview and exported HTML, search across inline
 formatting and highlighted code, keyboard controls, ToC focus, live edits,
 scroll preservation, HTML export rendered in a separate browser, and cold-start
 PDF export through the extension's Chromium renderer. A 400 KB single-line code

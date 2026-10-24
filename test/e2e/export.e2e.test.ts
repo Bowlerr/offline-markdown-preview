@@ -3,6 +3,7 @@ import { writeFile } from 'node:fs/promises';
 import { pathToFileURL } from 'node:url';
 
 import { expect, test, waitForFile } from './vscodeFixture';
+import { expectReadableFlowchart } from './diagramAssertions';
 
 test('exports the actual rendered preview to a standalone HTML file', async ({
   vscode,
@@ -39,6 +40,7 @@ test('exports the actual rendered preview to a standalone HTML file', async ({
   await expect(exportedPage.locator('h1')).toContainText('Release Journey');
   await expect(exportedPage.locator('.katex')).toHaveCount(2);
   await expect(exportedPage.locator('svg')).toBeVisible();
+  await expectReadableFlowchart(exportedPage.locator('.omv-mermaid'));
   const image = exportedPage.getByAltText('Local test image');
   await image.scrollIntoViewIfNeeded();
   await expect

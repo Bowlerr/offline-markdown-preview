@@ -112,7 +112,18 @@ export const test = base.extend<{ vscode: VsCodeSession }>({
         }
       };
       const page = await app.firstWindow();
-      await page.setViewportSize({ width: 1440, height: 1000 });
+      // Resize the native window, not a CDP-emulated viewport: older Electron
+      // Linux builds otherwise discard pointer events beyond the native bounds.
+      const nativeWindow = await app.browserWindow(page);
+      await nativeWindow.evaluate((window) => {
+        window.setContentSize(1440, 1000);
+      });
+      await nativeWindow.dispose();
+      await expect
+        .poll(() =>
+          page.evaluate(() => ({ width: innerWidth, height: innerHeight }))
+        )
+        .toEqual({ width: 1440, height: 1000 });
       await expect(
         page.getByRole('tree', { name: 'Files Explorer' })
       ).toBeVisible();

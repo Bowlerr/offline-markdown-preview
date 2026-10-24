@@ -15,7 +15,7 @@ Baseline: `ef3d02d` on `main`, manifest/tag 0.4.0. GitHub's latest release entry
 | R3 | Standalone exports preserve offline defaults with CSP; remote-image downloads are bounded by size and time. | Implemented; regression tests passing |
 | R4 | Search finds text in fenced code and across inline formatting; next/previous/clear and keyboard behavior remain accessible. | Implemented; browser verification passing |
 | R5 | Contents navigation retains keyboard focus, live edits retain reading position, and diagram panning has keyboard/button alternatives. | Implemented; browser verification passing |
-| R6 | Actual VS Code/webview E2E journeys replace fixture-only checks; failures fail the gate. | Implemented; final current/minimum version suites in progress |
+| R6 | Actual VS Code/webview E2E journeys replace fixture-only checks; failures fail the gate. | Current/minimum suites passed 8/8 each; affected contrast/export journeys rechecked 4/4 on each; final installed VSIX smoke passed 3/3 |
 | R7 | Reproducible dependency install, explicit type checking, CI and packaging gates, meaningful dependency audit. | Clean install, lint, strict types, 149 unit tests, build and package inspection passed; CI pending |
 | R8 | Version, changelog, docs and release notes agree; required checks/review pass; intended artifacts are published and verified. | Version 0.5.0 prepared; publication pending |
 
@@ -42,7 +42,10 @@ Workers coordinate protocol changes directly. Only the coordinator changes Git s
 - The production dependency audit reports zero advisories. The full development audit has three moderate entries from one UUID advisory in publishing tooling; the affected APIs are unused by the MSAL consumer. See CONTRIBUTING.md for the rationale and recheck requirement.
 - Mermaid remains on the patched 11.x line to preserve layouts and the minimum VS Code browser baseline. Mermaid shares KaTeX 0.19.1 through a scoped override; actual math labels and multiple diagram types are covered by browser tests.
 - Current VS Code 1.143.1 passes all eight actual application journeys, including a 400 KB single-line stress document with 200,000 potential matches. Highlights are capped at 1,000 with an explicit status; clearing restores exact text and the preview stays responsive.
-- VS Code 1.90.0 passes the seven standard rendering/navigation/export journeys; its final stress check and installed-VSIX smoke verification are pending at candidate preparation.
+- VS Code 1.90.0 also passes all eight journeys. Three smoke journeys install the actual VSIX into isolated extension directories and verify rendering, standalone HTML and cold PDF export without a development extension path.
+- Visual inspection identified a pre-existing dark Mermaid connector contrast defect (1.08:1). Connectors now use foreground color; regression checks require at least 3:1 for both lines and arrowheads in preview and exported HTML.
+- Minimum-version exports with translucent diagram backgrounds also require captured page colors. Resolved background/foreground variables now apply to both the exported body and content. Contrast assertions composite actual ancestor backgrounds and pass on both supported-version test targets.
+- Initial GitHub CI passed all three OS build/type/unit jobs and stable VS Code E2E. Minimum-version Linux screenshots exposed a test harness mismatch: the emulated viewport was 1,440 pixels wide but the native window was 1,024, so right-side mouse targets fell outside it. The harness now sizes the actual BrowserWindow and CI provides a 1,920-pixel display; the corrected gate must pass before merge.
 - The candidate VSIX contains 19 files (about 3 MB), with manifest version 0.5.0 and bundled outputs byte-matching the production build. Sources, tests, node_modules, maps, declarations and demo GIFs are excluded.
 
 ## Research sources
@@ -62,5 +65,6 @@ Workers coordinate protocol changes directly. Only the coordinator changes Git s
 - Measure scrolling/render costs on large documents before proposing incremental rendering or structural rewrites.
 - Consider a persistent preview lock and richer Markdown workspace navigation after current lifecycle behavior is tested.
 - Evaluate additional export layout controls against real authoring needs after export safety and fidelity are verified.
+- Consider an explicit print-friendly palette option; exports now preserve the captured preview background/foreground to keep translucent diagram backgrounds legible.
 - Consider architectural extraction from the large preview controller where it simplifies future changes; avoid a broad rewrite in this delivery.
 - Evaluate publishing identity modernization when account configuration is available; keep release authentication aligned with official guidance.
