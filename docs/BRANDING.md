@@ -5,8 +5,8 @@ The 0.5.1 icon was created with the built-in image generation tool from the main
 - `images/icon.png`: extension icon; reviewed at 32, 64 and 128 pixels on light and dark backgrounds.
 - `images/banner.png`: README and registry header; the product name is also provided as accessible text in the README.
 - `images/preview.png`: direct, unedited screenshot of the installed 0.5.1 package in an isolated VS Code 1.110.1 profile. The public Project notes example shows Mermaid, math and highlighted code; no private documents or account information appear.
-- Marketplace header color: `#06234A`.
-- Final banner eyebrow: `VS CODE & COMPATIBLE EDITORS`, reflecting availability through Marketplace and Open VSX.
+- Marketplace header color: `#092549`, matched to the SQLite IntelliView companion banner at the maintainer's request.
+- Final banner eyebrow: `LOCAL · OFFLINE · FREE`. The right side contains a full-height rendered Markdown preview illustration that fades toward the title, following the latest companion design. The illustrative preview includes headings, a checklist, a diagram, math and code. The fade was strengthened at the maintainer's request, with a smooth transition and no hard left edge. The supported-editors table remains in the README with direct test coverage and compatibility requirements.
 
 ## Final icon prompt
 

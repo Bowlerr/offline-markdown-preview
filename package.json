@@ -2,7 +2,7 @@
   "name": "offline-markdown-preview",
   "displayName": "Offline Markdown Preview",
   "description": "Offline Markdown preview for VS Code and compatible editors, with Mermaid diagrams, KaTeX math, secure local rendering, HTML/PDF export, and scroll sync.",
-  "version": "0.5.1",
+  "version": "0.5.2",
   "publisher": "bowlerr",
   "author": {
     "name": "Bowlerr",
@@ -19,7 +19,7 @@
   "homepage": "https://github.com/Bowlerr/offline-markdown-preview#readme",
   "icon": "images/icon.png",
   "galleryBanner": {
-    "color": "#06234A",
+    "color": "#092549",
     "theme": "dark"
   },
   "keywords": [

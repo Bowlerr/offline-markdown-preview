@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.5.2
+
+- Align the banner with the SQLite IntelliView companion design: a shared navy-and-cyan palette, local/offline/free label, full-height rendered Markdown preview illustration that fades toward the title
+- Preserve the exact approved Markdown logo, rounded app frame, and soft shadows
+
 ## 0.5.1
 
 - Refresh the extension icon and README banner with a clearer Markdown-and-page identity
