@@ -47,6 +47,7 @@ Workers coordinate protocol changes directly. Only the coordinator changes Git s
 - Minimum-version exports with translucent diagram backgrounds also require captured page colors. Resolved background/foreground variables now apply to both the exported body and content. Contrast assertions composite actual ancestor backgrounds and pass on both supported-version test targets.
 - Initial GitHub CI passed all three OS build/type/unit jobs and stable VS Code E2E. Minimum-version Linux screenshots exposed a test harness mismatch: the emulated viewport was 1,440 pixels wide but the native window was 1,024, so right-side mouse targets fell outside it. The harness now sizes the actual BrowserWindow and CI provides a 1,920-pixel display. Both corrected CI runs passed all jobs on `dd88879`.
 - The final automated review identified an IME composition-completion gap and persisted CI checkout credentials. Search now schedules the committed composition value and cancels pending searches while composing; CI and release checkouts remove credentials before subsequent steps. The follow-up commit must pass its own checks before merge.
+- PR #13 merged after both final CI runs passed, and its exact packaged VSIX passed rendering, HTML, PDF and IME smoke checks. The post-merge release gate then caught a stable-VS-Code PDF export still pending at the test's 30-second deadline. Trace evidence confirms the correct save path and no visible error; exporter logs were missing, so it cannot distinguish slow Chromium from a hang. PDF tests now allow 60 seconds for the two browser processes and retain isolated application logs on failure; assertions remain unchanged and automatic retries remain disabled.
 - The candidate VSIX contains 19 files (about 3 MB), with manifest version 0.5.0 and bundled outputs byte-matching the production build. Sources, tests, node_modules, maps, declarations and demo GIFs are excluded.
 
 ## Research sources
@@ -67,5 +68,6 @@ Workers coordinate protocol changes directly. Only the coordinator changes Git s
 - Consider a persistent preview lock and richer Markdown workspace navigation after current lifecycle behavior is tested.
 - Evaluate additional export layout controls against real authoring needs after export safety and fidelity are verified.
 - Consider an explicit print-friendly palette option; exports now preserve the captured preview background/foreground to keep translucent diagram backgrounds legible.
+- Add an explicit wall-clock deadline and cancellation/progress for PDF browser subprocesses; Chromium's virtual-time budget does not bound real process duration.
 - Consider architectural extraction from the large preview controller where it simplifies future changes; avoid a broad rewrite in this delivery.
 - Evaluate publishing identity modernization when account configuration is available; keep release authentication aligned with official guidance.
