@@ -1,0 +1,181 @@
+name: Release
+
+on:
+  push:
+    branches: [main]
+    paths: [package.json]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  version:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    outputs:
+      changed: ${{ steps.version.outputs.changed }}
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: version
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BEFORE_SHA: ${{ github.event.before }}
+        run: |
+          version=$(node -p "require('./package.json').version")
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          if [ "$EVENT_NAME" = workflow_dispatch ]; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          else
+            previous=$(git show "$BEFORE_SHA:package.json" | node -e "let text='';process.stdin.on('data',chunk=>text+=chunk).on('end',()=>console.log(JSON.parse(text).version))")
+            if [ "$version" != "$previous" ]; then
+              echo "changed=true" >> "$GITHUB_OUTPUT"
+            else
+              echo "changed=false" >> "$GITHUB_OUTPUT"
+            fi
+          fi
+
+  verify:
+    needs: version
+    if: needs.version.outputs.changed == 'true'
+    uses: ./.github/workflows/ci.yml
+
+  github-release:
+    needs: [version, verify]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: offline-markdown-preview-vsix
+      - name: Extract release notes
+        run: |
+          node <<'JS'
+          const fs = require('node:fs');
+          const version = require('./package.json').version;
+          const section = fs.readFileSync('CHANGELOG.md', 'utf8').split(`## ${version}\n`)[1]?.split('\n## ')[0]?.trim();
+          if (!section) throw new Error(`Missing changelog for ${version}`);
+          fs.writeFileSync('release-notes.md', section + '\n');
+          JS
+      - name: Create or verify immutable release artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          file="offline-markdown-preview-$RELEASE_VERSION.vsix"
+          if gh api "repos/$GITHUB_REPOSITORY/commits/$RELEASE_VERSION" --jq .sha > tag-sha.txt 2> tag-error.txt; then
+            tag_sha=$(cat tag-sha.txt)
+          elif grep -q 'HTTP 404' tag-error.txt; then
+            tag_sha=''
+          else
+            cat tag-error.txt >&2
+            exit 1
+          fi
+          if [ -n "$tag_sha" ] && [ "$tag_sha" != "$GITHUB_SHA" ]; then
+            echo '::error::Release version already points to a different source revision. Bump the version.'
+            exit 1
+          fi
+          if gh release view "$RELEASE_VERSION" >/dev/null 2>&1; then
+            is_draft=$(gh release view "$RELEASE_VERSION" --json isDraft --jq .isDraft)
+            if [ "$is_draft" = true ]; then
+              echo '::error::An existing draft release needs source verification and publication or removal before retrying.'
+              exit 1
+            fi
+            if [ "$tag_sha" != "$GITHUB_SHA" ]; then
+              echo '::error::Existing release has no matching source tag.'
+              exit 1
+            fi
+            asset_names=$(gh release view "$RELEASE_VERSION" --json assets --jq '.assets[].name')
+            if printf '%s\n' "$asset_names" | grep -Fxq "$file"; then
+              mkdir existing-release
+              gh release download "$RELEASE_VERSION" --pattern "$file" --dir existing-release
+              # Reuse published bytes on retries: ZIP timestamps vary between builds.
+              cp "existing-release/$file" "$file"
+            else
+              # Recover a release whose tag/notes were created before an upload failed.
+              gh release upload "$RELEASE_VERSION" "$file"
+            fi
+          else
+            gh release create "$RELEASE_VERSION" "$file" --target "$GITHUB_SHA" --title "$RELEASE_VERSION" --notes-file release-notes.md
+          fi
+          sha256sum "$file" >> "$GITHUB_STEP_SUMMARY"
+      - name: Preserve canonical release artifact for both registries
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-vsix
+          path: '*.vsix'
+          if-no-files-found: error
+          overwrite: true
+
+  marketplace:
+    needs: [version, github-release]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci --no-fund --no-audit
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-vsix
+      - name: Publish verified VSIX to Marketplace
+        env:
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}
+          RELEASE_VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          if [ -z "$VSCE_PAT" ]; then
+            echo '::error::Configure repository secret VSCE_PAT with publishing access for bowlerr.'
+            exit 1
+          fi
+          npx --no-install vsce publish --packagePath "offline-markdown-preview-$RELEASE_VERSION.vsix" --skip-duplicate
+      - name: Verify Marketplace version
+        env:
+          RELEASE_VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          for attempt in 1 2 3 4 5 6; do
+            if npx --no-install vsce show bowlerr.offline-markdown-preview --json > marketplace.json && node -e "const p=require('./marketplace.json');process.exit(p.versions.some(v=>v.version===process.env.RELEASE_VERSION)?0:1)"; then exit 0; fi
+            sleep 10
+          done
+          echo '::error::Marketplace has not reported the published version.'
+          exit 1
+
+  open-vsx:
+    needs: [version, github-release]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci --no-fund --no-audit
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-vsix
+      - name: Publish verified VSIX to Open VSX
+        env:
+          OVSX_PAT: ${{ secrets.OVSX_PAT }}
+          RELEASE_VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          if [ -z "$OVSX_PAT" ]; then
+            echo '::error::Configure repository secret OVSX_PAT with publishing access for bowlerr.'
+            exit 1
+          fi
+          npx --no-install ovsx publish "offline-markdown-preview-$RELEASE_VERSION.vsix" --skip-duplicate
+      - name: Verify Open VSX version
+        env:
+          RELEASE_VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          curl --fail --silent --show-error --retry 5 --retry-all-errors --retry-delay 10 "https://open-vsx.org/api/bowlerr/offline-markdown-preview/$RELEASE_VERSION" -o open-vsx.json
+          node -e "const p=require('./open-vsx.json');if(p.version!==process.env.RELEASE_VERSION)throw new Error('Open VSX version mismatch')"

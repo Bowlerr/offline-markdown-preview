@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.5.0
+
+- Keep broad searches responsive by limiting highlights to the first 1,000 matches, with an explicit result-limit indicator
+- Search fenced code and phrases spanning inline formatting, with previous-match keyboard navigation, clear no-results feedback, and accessible controls
+- Preserve the reading position during live updates and keyboard focus in the contents list
+- Add keyboard and button controls for diagram panning, improve focus indicators and image actions, and respect reduced-motion preferences
+- Serialize preview rendering so rapid edits cannot mix diagram/math output from different document versions
+- Export only a completed snapshot of the requested document, including when exporting before the preview has opened; report a clear error if rendering cannot finish
+- Apply offline Content Security Policy to HTML/PDF exports, retaining the remote-image opt-in and preventing document scripts from running in exported files
+- Reject forged internal image attributes and unauthorized local image paths, including symlink escapes, before opening or embedding files
+- Bound remote-image downloads by the configured image size and a 30-second timeout
+- Update affected rendering and validation dependencies, add strict TypeScript checking, and make dependency installs reproducible with one npm lockfile
+- Replace fixture-only E2E checks with real VS Code preview, search, navigation, diagram, HTML-export and PDF-export journeys
+- Minify production bundles and exclude demonstration GIFs from the installed extension package
+- Gate releases on cross-platform checks and current/minimum VS Code journeys, then publish one verified VSIX to GitHub and both extension registries
+
 ## 0.4.0
 
 - Resolve percent-encoded local image paths, including filenames with spaces and reserved characters, while rejecting malformed or unsafe encoded separators

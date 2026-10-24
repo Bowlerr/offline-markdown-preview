@@ -21,6 +21,9 @@ describe('messaging validation', () => {
     const msg = parseWebviewMessage({
       type: 'htmlExportSnapshot',
       requestId: 1,
+      documentUri: 'file:///a.md',
+      version: 3,
+      renderRequestId: 2,
       html: '<p>Rendered</p>',
       themeVariables: {
         '--omv-active-pre-bg': 'rgb(1, 2, 3)',

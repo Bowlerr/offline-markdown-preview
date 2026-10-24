@@ -55,7 +55,10 @@ export class ScrollSyncController {
     const el = this.scroller.querySelector<HTMLElement>(`#${CSS.escape(id)}`);
     if (!el) return;
     this.ignoreScrollUntil = performance.now() + 300;
-    el.scrollIntoView({ block: 'start', behavior: 'smooth' });
+    el.scrollIntoView({
+      block: 'start',
+      behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth'
+    });
   }
 
   private onScroll(): void {
@@ -82,11 +85,11 @@ export class ScrollSyncController {
             endLine: Number.isFinite(endLine) && endLine > line ? endLine : undefined
           };
         })
-        .filter((value): value is { el: HTMLElement; line: number; endLine?: number } => Boolean(value))
+        .filter((value) => value !== undefined)
         .sort((a, b) => a.line - b.line || compareDomPosition(a.el, b.el));
       this.markerCacheDirty = false;
     }
-    return this.markerCache;
+    return this.markerCache ?? [];
   }
 
   private getMarkerMetrics(): LineMarkerMetric[] {
@@ -112,12 +115,11 @@ export class ScrollSyncController {
 
   private estimateScrollTopForLine(line: number): number | undefined {
     const metrics = this.getMarkerMetrics();
-    if (metrics.length === 0) return undefined;
-
     let prev = metrics[0];
+    if (!prev) return undefined;
     let next: LineMarkerMetric | undefined;
     for (let i = 1; i < metrics.length; i += 1) {
-      const candidate = metrics[i];
+      const candidate = metrics[i]!;
       if (candidate.line > line) {
         next = candidate;
         break;
@@ -140,12 +142,11 @@ export class ScrollSyncController {
 
   private estimateLineAtScrollTop(scrollTop: number): number | undefined {
     const metrics = this.getMarkerMetrics();
-    if (metrics.length === 0) return undefined;
-
     let prev = metrics[0];
+    if (!prev) return undefined;
     let next: LineMarkerMetric | undefined;
     for (let i = 1; i < metrics.length; i += 1) {
-      const candidate = metrics[i];
+      const candidate = metrics[i]!;
       if (candidate.top > scrollTop) {
         next = candidate;
         break;

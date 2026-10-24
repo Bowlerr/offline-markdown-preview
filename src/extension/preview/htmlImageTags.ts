@@ -83,7 +83,7 @@ export function parseHtmlImgTag(tag: string): {
 
   for (const match of body.matchAll(attrPattern)) {
     lastMatchEnd = (match.index ?? 0) + match[0].length;
-    const name = match[1];
+    const name = match[1]!;
     const quote = match[2] !== undefined ? '"' : match[3] !== undefined ? "'" : undefined;
     const originalValue = match[2] ?? match[3] ?? match[4];
     const value =
@@ -202,7 +202,7 @@ function looksLikeSrcsetUrlStart(value: string): boolean {
     return false;
   }
 
-  return !/[<>"']/.test(match[1]);
+  return !/[<>"']/.test(match[1]!);
 }
 
 function getExplicitSrcsetUrlKind(
@@ -289,7 +289,7 @@ function parseDataSrcsetCandidate(
     while (
       index < value.length &&
       value[index] !== ',' &&
-      !/\s/.test(value[index])
+      !/\s/.test(value.charAt(index))
     ) {
       index += 1;
     }
@@ -301,7 +301,7 @@ function parseDataSrcsetCandidate(
       };
     }
 
-    if (!/\s/.test(value[index])) {
+    if (!/\s/.test(value.charAt(index))) {
       index += 1;
       continue;
     }
@@ -347,7 +347,7 @@ export function parseHtmlSrcset(value: string): HtmlSrcsetCandidate[] {
   let index = 0;
 
   while (index < value.length) {
-    while (index < value.length && /[\s,]/.test(value[index])) {
+    while (index < value.length && /[\s,]/.test(value.charAt(index))) {
       index += 1;
     }
     if (index >= value.length) {
@@ -365,7 +365,7 @@ export function parseHtmlSrcset(value: string): HtmlSrcsetCandidate[] {
 
     while (
       index < value.length &&
-      !/\s/.test(value[index])
+      !/\s/.test(value.charAt(index))
     ) {
       index += 1;
     }
@@ -484,7 +484,7 @@ function getLiteralContentTagName(tag: string): string | undefined {
     return undefined;
   }
 
-  switch (match[1].toLowerCase()) {
+  switch (match[1]!.toLowerCase()) {
     case 'script':
     case 'style':
     case 'template':

@@ -7,7 +7,10 @@ export function registerCommands(
   context: vscode.ExtensionContext,
   controller: PreviewController
 ): vscode.Disposable[] {
-  const commands: Array<[string, (...args: unknown[]) => unknown]> = [
+  const commands: Array<[
+    string,
+    Parameters<typeof vscode.commands.registerCommand>[1]
+  ]> = [
     ['offlineMarkdownViewer.openPreview', () => controller.openPreview(false)],
     [
       'offlineMarkdownViewer.openPreviewToSide',

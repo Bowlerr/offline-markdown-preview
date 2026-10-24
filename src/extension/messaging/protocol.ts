@@ -83,6 +83,9 @@ export interface ExportPdfPayload {
 export interface RequestHtmlExportSnapshotPayload {
   type: 'requestHtmlExportSnapshot';
   requestId: number;
+  documentUri: string;
+  version: number;
+  renderRequestId: number;
 }
 
 export interface UpdateCustomCssPayload {
@@ -160,6 +163,10 @@ export interface RequestExportMessage {
 export interface HtmlExportSnapshotMessage {
   type: 'htmlExportSnapshot';
   requestId: number;
+  documentUri: string;
+  version: number;
+  renderRequestId: number;
+  error?: string;
   html: string;
   themeVariables?: Record<string, string>;
 }

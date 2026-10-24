@@ -32,6 +32,8 @@ function encodeUriPath(uriPath: string): string {
 }
 
 export class Uri {
+  readonly authority = '';
+
   constructor(
     public readonly scheme: string,
     public readonly fsPath: string,
@@ -95,6 +97,16 @@ export class Uri {
 
   toString(skipEncoding = false): string {
     return skipEncoding ? decodeURIComponent(this.raw) : this.raw;
+  }
+
+  toJSON() {
+    return {
+      scheme: this.scheme,
+      authority: this.authority,
+      path: this.path,
+      query: this.query,
+      fragment: this.fragment
+    };
   }
 }
 

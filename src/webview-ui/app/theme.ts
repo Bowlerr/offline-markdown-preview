@@ -10,7 +10,8 @@ export function initTheme(onChange?: () => void): void {
   const apply = () => {
     const body = document.body;
     const nextBodyClass = normalizeObservedBodyClass(body.className);
-    body.className = nextBodyClass;
+    // Same-value class assignments still queue MutationObserver callbacks.
+    if (body.className !== nextBodyClass) body.className = nextBodyClass;
     const nextThemeKind = getThemeKindFromBodyClass(nextBodyClass);
     body.dataset.vscodeThemeKind = nextThemeKind;
     if (shouldRefreshTheme(previousBodyClass, nextBodyClass)) {

@@ -1,259 +1,221 @@
-import { access, readFile } from 'node:fs/promises';
-import { spawn } from 'node:child_process';
+import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
-import { test, expect } from '@playwright/test';
+import { expect, test } from './vscodeFixture';
 
-const enabled = process.env.RUN_VSCODE_E2E === '1';
-const extensionDevPath = process.env.OMV_E2E_EXTENSION_DEV_PATH;
-const userDataDir = process.env.OMV_E2E_USER_DATA_DIR;
-const extensionsDir = process.env.OMV_E2E_EXTENSIONS_DIR;
-const tryPlaywrightElectron = process.env.OMV_E2E_TRY_PLAYWRIGHT_ELECTRON === '1';
-
-test.describe('preview features (VS Code)', () => {
-  test.skip(!enabled, 'Set RUN_VSCODE_E2E=1 and provide VSCODE_EXECUTABLE_PATH to run VS Code e2e tests.');
-
-  test('workspace fixtures cover preview scenarios', async () => {
-    const workspace = requireWorkspace();
-
-    const sample = await readWorkspaceMarkdown(workspace, 'sample.md');
-    const linkedDoc = await readWorkspaceMarkdown(workspace, 'linked-doc.md');
-    const linkedSubdoc = await readWorkspaceMarkdown(workspace, 'sub/linked-subdoc.md');
-    const mermaidEdgeCases = await readWorkspaceMarkdown(workspace, 'mermaid-edge-cases.md');
-    const remoteImages = await readWorkspaceMarkdown(workspace, 'remote-images.md');
-    const imagePaths = await readWorkspaceMarkdown(workspace, 'image-paths.md');
-
-    await access(join(workspace, 'assets/banner.svg'));
-    await access(join(workspace, 'assets/grid.svg'));
-    await access(join(workspace, 'assets/normal-image.svg'));
-    await access(join(workspace, 'assets/name with spaces.svg'));
-
-    expect(sample).toContain('# Sample');
-    expect(sample).toContain('## Mermaid');
-    expect(sample).toContain('```mermaid');
-    expect(sample).toContain('## Math');
-
-    const sampleSections = extractHeadings(sample).map((heading) => heading.text);
-    if (!sampleSections.includes('Links and Assets Offline Safe') || !sampleSections.includes('Mermaid Diagrams')) {
-      test.info().annotations.push({
-        type: 'fixture-note',
-        description:
-          'sample.md is missing newer link/navigation sections; checked-in linked docs still reference those anchors. The harness now preserves fixtures instead of overwriting them.'
-      });
-    }
-
-    expect(linkedDoc).toContain('# Linked Doc');
-    expect(linkedDoc).toContain('./sample.md#links-and-assets-offline-safe');
-    expect(linkedSubdoc).toContain('# Linked Subdoc');
-    expect(linkedSubdoc).toContain('../sample.md#mermaid-diagrams');
-    expect(mermaidEdgeCases).toContain('# Mermaid Edge Cases Fixture');
-    expect(mermaidEdgeCases).toContain('./sample.md#mermaid-diagrams');
-    expect(remoteImages).toContain('# Remote Images Fixture');
-    expect(remoteImages).toContain('offlineMarkdownViewer.preview.allowRemoteImages = false');
-    expect(remoteImages).toContain('Download Image');
-    expect(imagePaths).toContain('](./assets/normal-image.svg)');
-    expect(imagePaths).toContain('](./assets/name%20with%20spaces.svg)');
-    expect(imagePaths).toContain('](<./assets/name with spaces.svg>)');
-    expect(imagePaths).toContain('[image-with-spaces]: ./assets/name%20with%20spaces.svg');
-
-    const remoteImageLinks = extractMarkdownImageLinks(remoteImages).filter((link) => isHttpUrl(link));
-    expect(remoteImageLinks).toEqual(
-      expect.arrayContaining([
-        'https://picsum.photos/seed/omv-remote-image/640/360',
-        'https://picsum.photos/seed/omv-query-image/800/450?grayscale=1'
-      ])
+test(
+  'limits very large search results and restores original content',
+  { tag: '@stress' },
+  async ({ vscode }) => {
+    await writeFile(
+      join(vscode.workspace, 'journey.md'),
+      '# Stress\n\n```text\n' + 'a '.repeat(200_000) + '\n```\n'
     );
-    expect(remoteImageLinks.length).toBeGreaterThanOrEqual(3);
-    expect(countMatches(remoteImages, /https:\/\/picsum\.photos\/seed\/omv-remote-image\/640\/360/g)).toBe(2);
-
-    const mermaidFenceCount = countMatches(mermaidEdgeCases, /```mermaid/g);
-    expect(mermaidFenceCount).toBeGreaterThanOrEqual(18);
-
-    const sectionTitles = extractHeadings(mermaidEdgeCases)
-      .filter((heading) => heading.level === 2)
-      .map((heading) => heading.text);
-
-    expect(sectionTitles).toEqual(
-      expect.arrayContaining([
-        'Flowchart Label Fit',
-        'Flowchart Large and Dense',
-        'Sequence Diagram Edge Cases',
-        'Class Diagram Edge Cases',
-        'State Diagram Edge Cases',
-        'ER Diagram Edge Cases',
-        'Gantt / Timeline',
-        'Pie / Mindmap / Journey / GitGraph'
-      ])
+    const preview = await vscode.openMarkdown('journey.md');
+    const code = preview.locator('pre code');
+    const original = await code.textContent();
+    await preview.getByRole('searchbox', { name: 'Search preview' }).fill('a');
+    await expect(preview.locator('.omv-meta')).toHaveText(
+      '1 of 1,000+ matches (first 1,000 shown)'
     );
+    await expect(preview.locator('mark.omv-search-hit')).toHaveCount(1_000);
+    expect(
+      await preview.evaluate(
+        () =>
+          new Promise<boolean>((resolve) => {
+            requestAnimationFrame(() => resolve(true));
+          })
+      )
+    ).toBe(true);
+    await preview.getByRole('button', { name: 'Clear search' }).click();
+    await expect(preview.locator('mark.omv-search-hit')).toHaveCount(0);
+    expect(
+      await code.evaluate(
+        (element, expected) => element.textContent === expected,
+        original
+      )
+    ).toBe(true);
+  }
+);
+
+test('renders local Markdown, Mermaid, math, and images without remote image requests', async ({
+  vscode
+}, testInfo) => {
+  const remoteRequests: string[] = [];
+  await vscode.app
+    .context()
+    .route('https://offline-preview-e2e.invalid/**', async (route) => {
+      remoteRequests.push(route.request().url());
+      await route.abort();
+    });
+  const preview = await vscode.openMarkdown('journey.md');
+  await expect(preview.locator('h1')).toContainText('Release Journey');
+  await expect(preview.locator('.katex')).toHaveCount(2);
+  await expect(preview.locator('.omv-mermaid svg')).toBeVisible();
+  const image = preview.getByAltText('Local test image');
+  await image.scrollIntoViewIfNeeded();
+  await expect
+    .poll(() =>
+      image.evaluate((element) => (element as HTMLImageElement).naturalWidth)
+    )
+    .toBeGreaterThan(0);
+  await expect(
+    preview.getByRole('button', { name: 'Download Image', exact: true })
+  ).toHaveCount(2);
+  await expect(preview.locator('body')).not.toHaveAttribute(
+    'data-unsafe',
+    'executed'
+  );
+  await expect(
+    preview.locator(
+      '.omv-preview script, .omv-preview [onerror], .omv-preview a[href^="javascript:"]'
+    )
+  ).toHaveCount(0);
+  expect(remoteRequests).toEqual([]);
+  await preview.locator('.omv-preview-scroll').evaluate((element) => {
+    element.scrollTop = 0;
   });
-
-  test('open preview and render markdown', async () => {
-    const executable = process.env.VSCODE_EXECUTABLE_PATH;
-    const workspace = requireWorkspace();
-    expect(executable).toBeTruthy();
-    expect(extensionDevPath).toBeTruthy();
-    expect(userDataDir).toBeTruthy();
-    expect(extensionsDir).toBeTruthy();
-    await access(join(workspace, 'sample.md'));
-    await access(join(workspace, 'mermaid-edge-cases.md'));
-
-    // Stable default for CI/local smoke: the harness already validates the VS Code binary before Playwright starts.
-    // Re-checking here is best-effort only because some hosts/package layouts emit non-standard output.
-    try {
-      const versionOutput = await runAndCapture(executable!, ['--version']);
-      if (!/v?\d+\.\d+\.\d+/.test(versionOutput)) {
-        test.info().annotations.push({
-          type: 'host-limitation',
-          description: `VS Code --version output did not contain a semver string on this host: ${JSON.stringify(versionOutput)}`
-        });
-      }
-    } catch (error) {
-      test.info().annotations.push({
-        type: 'host-limitation',
-        description: `VS Code --version smoke failed on this host: ${String(error)}`
-      });
-    }
-
-    // Optional deeper launch path. Playwright's Electron launcher is not reliable against VS Code on all hosts.
-    test.skip(!tryPlaywrightElectron, 'Set OMV_E2E_TRY_PLAYWRIGHT_ELECTRON=1 to attempt GUI launch via Playwright Electron.');
-
-    try {
-      const args = [
-        workspace,
-        '--disable-workspace-trust',
-        '--new-window',
-        '--skip-welcome',
-        '--skip-release-notes',
-        `--user-data-dir=${userDataDir!}`,
-        `--extensions-dir=${extensionsDir!}`,
-        `--extensionDevelopmentPath=${extensionDevPath!}`
-      ];
-      if (process.platform === 'linux') args.push('--no-sandbox');
-
-      const launchResult = await tryLaunchVsCodeProcess(executable!, args, 3000);
-      if (!launchResult.ok) {
-        test.info().annotations.push({
-          type: 'host-limitation',
-          description: `Optional GUI launch smoke failed on this host: ${launchResult.error}`
-        });
-      }
-    } catch (error) {
-      test.info().annotations.push({
-        type: 'host-limitation',
-        description: `Optional GUI launch smoke threw on this host: ${String(error)}`
-      });
-    }
-  });
+  await vscode.page.screenshot({ path: testInfo.outputPath('preview.png') });
 });
 
-function requireWorkspace(): string {
-  const workspace = process.env.OMV_E2E_WORKSPACE;
-  expect(workspace).toBeTruthy();
-  return workspace!;
-}
+test('search crosses inline formatting and code spans with keyboard navigation', async ({
+  vscode
+}) => {
+  const preview = await vscode.openMarkdown('journey.md');
+  const search = preview.getByRole('searchbox', { name: 'Search preview' });
+  const codeBefore = await preview.locator('pre code').innerHTML();
+  await search.fill('cross format');
+  await expect(preview.locator('.omv-meta')).toHaveText('1 of 3 matches');
+  await search.press('Enter');
+  await expect(preview.locator('.omv-meta')).toHaveText('2 of 3 matches');
+  await search.press('Shift+Enter');
+  await expect(preview.locator('.omv-meta')).toHaveText('1 of 3 matches');
+  await search.fill('const searchableCode');
+  await expect(preview.locator('.omv-meta')).toHaveText('1 of 1 matches');
+  await expect(preview.locator('mark mark')).toHaveCount(0);
+  await preview.getByRole('button', { name: 'Clear search' }).click();
+  await expect(preview.locator('pre code')).toHaveJSProperty(
+    'innerHTML',
+    codeBefore
+  );
+  await expect(preview.locator('mark.omv-search-hit')).toHaveCount(0);
+  await search.fill('no matching phrase');
+  await expect(preview.locator('.omv-meta')).toContainText(/no matches/i);
+  await expect(preview.locator('[data-action="next"]')).toBeDisabled();
+  await search.evaluate((element) =>
+    element.dispatchEvent(
+      new KeyboardEvent('keydown', {
+        key: 'Escape',
+        bubbles: true,
+        cancelable: true,
+        isComposing: true
+      })
+    )
+  );
+  await expect(search).toBeVisible();
+  await expect(search).toBeFocused();
+  await search.press('Escape');
+  await expect(search).toBeHidden();
+  await expect(preview.locator('[data-ui-toggle="search"]')).toBeFocused();
+});
 
-async function readWorkspaceMarkdown(workspace: string, relativePath: string): Promise<string> {
-  const fullPath = join(workspace, relativePath);
-  await access(fullPath);
-  return readFile(fullPath, 'utf8');
-}
-
-function extractHeadings(markdown: string): Array<{ level: number; text: string }> {
-  const headings: Array<{ level: number; text: string }> = [];
-  for (const line of markdown.split(/\r?\n/)) {
-    const match = /^(#{1,6})\s+(.+?)\s*$/.exec(line);
-    if (!match) continue;
-    headings.push({ level: match[1].length, text: match[2] });
-  }
-  return headings;
-}
-
-function extractMarkdownImageLinks(markdown: string): string[] {
-  const links: string[] = [];
-  const regex = /!\[[^\]]*]\(([^)]+)\)/g;
-  for (const match of markdown.matchAll(regex)) {
-    const href = match[1]?.trim();
-    if (href) links.push(href);
-  }
-  return links;
-}
-
-function isHttpUrl(value: string): boolean {
-  return /^https?:\/\//i.test(value);
-}
-
-function countMatches(text: string, pattern: RegExp): number {
-  const flags = pattern.flags.includes('g') ? pattern.flags : `${pattern.flags}g`;
-  return [...text.matchAll(new RegExp(pattern.source, flags))].length;
-}
-
-function runAndCapture(command: string, args: string[]): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const child = spawn(command, args, { stdio: ['ignore', 'pipe', 'pipe'] });
-    let stdout = '';
-    let stderr = '';
-    child.stdout.on('data', (d) => {
-      stdout += String(d);
-    });
-    child.stderr.on('data', (d) => {
-      stderr += String(d);
-    });
-    child.on('exit', (code) => {
-      if (code === 0) {
-        const combined = [stdout, stderr].filter(Boolean).join('\n').trim();
-        resolve(combined);
-        return;
-      }
-      else reject(new Error(`Command failed (${code}): ${command} ${args.join(' ')}\\n${stderr}`));
-    });
-    child.on('error', reject);
+test('live edits update the active preview and preserve scroll position', async ({
+  vscode
+}) => {
+  const source = join(vscode.workspace, 'journey.md');
+  const original = await readFile(source, 'utf8');
+  await writeFile(
+    source,
+    original +
+      '\n' +
+      Array.from(
+        { length: 80 },
+        (_, i) => `## Section ${i}\n\nLong document paragraph ${i}.\n`
+      ).join('\n')
+  );
+  const preview = await vscode.openMarkdown('journey.md');
+  const heading = preview.locator(
+    '.omv-toc button[data-heading-id="section-20"]'
+  );
+  await heading.focus();
+  await heading.press('Enter');
+  await expect(heading).toBeFocused();
+  const scroller = preview.locator('.omv-preview-scroll');
+  await scroller.evaluate((element) => {
+    element.scrollTop = 1400;
   });
-}
+  const before = await scroller.evaluate((element) => element.scrollTop);
+  expect(before).toBeGreaterThan(1000);
+  await writeFile(
+    source,
+    (await readFile(source, 'utf8')).replace(
+      'Long document paragraph 79.',
+      'Updated live document paragraph.'
+    )
+  );
+  await expect(preview.locator('.omv-preview')).toContainText(
+    'Updated live document paragraph.'
+  );
+  await expect
+    .poll(() => scroller.evaluate((element) => element.scrollTop))
+    .toBeGreaterThan(before - 100);
+  await expect
+    .poll(() => scroller.evaluate((element) => element.scrollTop))
+    .toBeLessThan(before + 100);
+});
 
-function tryLaunchVsCodeProcess(
-  command: string,
-  args: string[],
-  timeoutMs: number
-): Promise<{ ok: true } | { ok: false; error: string }> {
-  return new Promise((resolve) => {
-    const child = spawn(command, args, { stdio: 'ignore' });
-    let settled = false;
-    let started = false;
-
-    const finish = (result: { ok: true } | { ok: false; error: string }) => {
-      if (settled) return;
-      settled = true;
-      resolve(result);
-    };
-
-    const timer = setTimeout(() => {
-      if (!settled) {
-        if (started) {
-          child.kill('SIGTERM');
-          finish({ ok: true });
-        } else {
-          finish({ ok: false, error: 'process did not start before timeout' });
-        }
-      }
-    }, timeoutMs);
-
-    child.on('spawn', () => {
-      started = true;
-    });
-
-    child.on('error', (error) => {
-      clearTimeout(timer);
-      finish({ ok: false, error: String(error) });
-    });
-
-    child.on('exit', (code, signal) => {
-      clearTimeout(timer);
-      if (settled) return;
-      if (started && (signal === 'SIGTERM' || code === 0 || code === null)) {
-        finish({ ok: true });
-        return;
-      }
-      finish({ ok: false, error: `exit code=${String(code)} signal=${String(signal)}` });
-    });
+test('diagram controls support named buttons and keyboard panning', async ({
+  vscode
+}) => {
+  const preview = await vscode.openMarkdown('journey.md');
+  const viewport = preview.getByRole('group', {
+    name: /^Mermaid diagram viewer\./
   });
-}
+  await viewport.scrollIntoViewIfNeeded();
+  await expect(
+    preview.getByRole('button', { name: 'Zoom in', exact: true })
+  ).toBeVisible();
+  await expect(
+    preview.getByRole('button', { name: 'Zoom out', exact: true })
+  ).toBeVisible();
+  await preview
+    .getByRole('button', { name: 'Reset diagram to 100% size', exact: true })
+    .click();
+  for (let i = 0; i < 3; i++) {
+    await preview.getByRole('button', { name: 'Zoom in', exact: true }).click();
+  }
+  const canvas = preview.locator('.omv-mermaid-canvas');
+  const original = await canvas.getAttribute('style');
+  await viewport.focus();
+  await viewport.press('ArrowRight');
+  await expect(viewport).toBeFocused();
+  await expect(canvas).not.toHaveAttribute('style', original ?? '');
+  await preview.getByRole('button', { name: 'Pan left', exact: true }).click();
+  await preview
+    .getByRole('button', { name: 'Fit diagram to viewport', exact: true })
+    .click();
+  await expect(preview.locator('.omv-mermaid svg')).toBeVisible();
+});
+
+test('renders flowchart mathematics, sequence diagrams, and class diagrams', async ({
+  vscode
+}) => {
+  const preview = await vscode.openMarkdown('diagrams.md');
+  await expect(preview.locator('.omv-mermaid svg')).toHaveCount(3);
+  await expect(preview.locator('.omv-mermaid-error')).toHaveCount(0);
+  await expect(
+    preview.locator('.omv-mermaid').first().locator('.katex')
+  ).toHaveCount(1);
+  // A live theme update must settle instead of repeatedly triggering its own
+  // class MutationObserver and starving rendering/the browser event loop.
+  const heartbeat = await preview.evaluate(
+    () =>
+      new Promise<boolean>((resolve) => {
+        document.body.className = 'vscode-body vscode-light';
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve(true)));
+      })
+  );
+  expect(heartbeat).toBe(true);
+  await expect(preview.locator('.omv-mermaid svg')).toHaveCount(3);
+  await expect(preview.locator('.omv-mermaid-error')).toHaveCount(0);
+});

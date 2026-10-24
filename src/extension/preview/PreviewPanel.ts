@@ -237,6 +237,9 @@ export class PreviewController implements vscode.Disposable {
   private preferredMarkdownColumn: vscode.ViewColumn | undefined;
   private lastPreviewColumn: vscode.ViewColumn | undefined;
   private webviewAllowsRemoteImages: boolean | undefined;
+  private webviewReady = false;
+  private webviewGeneration = 0;
+  private readonly webviewReadyWaiters = new Set<(ready: boolean) => void>();
   private webviewCustomCssDirty = true;
   private webviewCustomCssKey: string | undefined;
   private webviewCustomCssTexts: string[] | undefined;
@@ -245,6 +248,9 @@ export class PreviewController implements vscode.Disposable {
   private pendingHtmlExportSnapshot:
     | {
         requestId: number;
+        documentUri: string;
+        version: number;
+        renderRequestId: number;
         resolve: (snapshot: HtmlExportSnapshotData | undefined) => void;
         timer: NodeJS.Timeout;
       }
@@ -455,7 +461,7 @@ export class PreviewController implements vscode.Disposable {
 
     const settings = getSettings(editor.document.uri);
     const customCss = await resolveCustomCss(editor.document.uri);
-    this.panel.webview.html = await this.buildWebviewHtml(
+    const webviewHtml = await this.buildWebviewHtml(
       this.panel.webview,
       settings,
       customCss.cssTexts
@@ -470,6 +476,7 @@ export class PreviewController implements vscode.Disposable {
         this.lastPreviewColumn =
           this.panel?.viewColumn ?? this.lastPreviewColumn;
         this.panel = undefined;
+        this.updateWebviewReady(false);
         this.webviewAllowsRemoteImages = undefined;
         this.webviewCustomCssDirty = true;
         this.webviewCustomCssKey = undefined;
@@ -491,6 +498,8 @@ export class PreviewController implements vscode.Disposable {
       })
     );
 
+    this.updateWebviewReady(false);
+    this.panel.webview.html = webviewHtml;
     this.lastPreviewColumn = this.panel.viewColumn ?? initialColumn;
     await this.renderNow();
     if (preserveFocus) {
@@ -503,19 +512,17 @@ export class PreviewController implements vscode.Disposable {
   }
 
   async exportHtml(): Promise<void> {
-    if (!this.currentEditor) return;
-    if (!this.panel) {
-      await this.openPreview(true);
-    }
-    if (!this.state.snapshot) {
-      await this.renderNow();
-    }
+    if (!(await this.prepareExportPreview())) return;
     const snapshot = this.state.snapshot;
     if (!snapshot) return;
 
     const settings = getSettings(snapshot.uri);
     const renderedSnapshot = await this.requestRenderedHtmlExportSnapshot();
-    let html = renderedSnapshot?.html ?? snapshot.html;
+    if (!renderedSnapshot) {
+      this.reportExportSnapshotFailure();
+      return;
+    }
+    let html = renderedSnapshot.html;
     html = this.rewriteLocalImageSourcesForExport(html);
     if (settings.embedImages) {
       const answer = await vscode.window.showWarningMessage(
@@ -524,7 +531,7 @@ export class PreviewController implements vscode.Disposable {
         'Export'
       );
       if (answer !== 'Export') return;
-      html = await this.embedLocalImages(html, settings.maxImageMB);
+      html = await this.embedLocalImages(html, settings.maxImageMB, snapshot.uri);
     }
 
     const defaultUri = snapshot.uri.with({
@@ -541,7 +548,9 @@ export class PreviewController implements vscode.Disposable {
       html,
       snapshot.uri,
       settings,
-      renderedSnapshot?.themeVariables
+      renderedSnapshot.themeVariables,
+      false,
+      snapshot.frontmatter
     );
     await vscode.workspace.fs.writeFile(target, Buffer.from(document, 'utf8'));
     void vscode.window.showInformationMessage(
@@ -550,19 +559,17 @@ export class PreviewController implements vscode.Disposable {
   }
 
   async exportPdf(): Promise<void> {
-    if (!this.currentEditor) return;
-    if (!this.panel) {
-      await this.openPreview(true);
-    }
-    if (!this.state.snapshot) {
-      await this.renderNow();
-    }
+    if (!(await this.prepareExportPreview())) return;
     const snapshot = this.state.snapshot;
     if (!snapshot) return;
 
     const settings = getSettings(snapshot.uri);
     const renderedSnapshot = await this.requestRenderedHtmlExportSnapshot();
-    let html = renderedSnapshot?.html ?? snapshot.html;
+    if (!renderedSnapshot) {
+      this.reportExportSnapshotFailure();
+      return;
+    }
+    let html = renderedSnapshot.html;
     html = this.rewriteLocalImageSourcesForExport(html);
 
     if (settings.embedImages) {
@@ -572,7 +579,7 @@ export class PreviewController implements vscode.Disposable {
         'Continue'
       );
       if (answer !== 'Continue') return;
-      html = await this.embedLocalImages(html, settings.maxImageMB);
+      html = await this.embedLocalImages(html, settings.maxImageMB, snapshot.uri);
     }
 
     const defaultUri = snapshot.uri.with({
@@ -591,8 +598,9 @@ export class PreviewController implements vscode.Disposable {
         html,
         snapshot.uri,
         settings,
-        renderedSnapshot?.themeVariables,
-        true
+        renderedSnapshot.themeVariables,
+        true,
+        snapshot.frontmatter
       );
       tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'omv-pdf-'));
       const tempHtmlPath = path.join(
@@ -886,11 +894,7 @@ export class PreviewController implements vscode.Disposable {
       picked.target
     );
     void vscode.window.showInformationMessage(
-      `${
-        picked.target === vscode.ConfigurationTarget.Workspace
-          ? 'Workspace'
-          : 'Folder'
-      } custom CSS set to ${relative}`
+      `Folder custom CSS set to ${relative}`
     );
   }
 
@@ -1145,7 +1149,7 @@ export class PreviewController implements vscode.Disposable {
     };
 
     this.outlineEmitter.fire(result.toc);
-    this.panel.title = `Offline Preview: ${path.basename(editor.document.uri.fsPath)}`;
+    panel.title = `Offline Preview: ${path.basename(editor.document.uri.fsPath)}`;
 
     this.postMessage({
       type: 'render',
@@ -1179,7 +1183,11 @@ export class PreviewController implements vscode.Disposable {
 
     switch (message.type) {
       case 'ready': {
+        const generation = this.webviewGeneration;
         await this.renderNow();
+        if (generation === this.webviewGeneration && this.panel) {
+          this.updateWebviewReady(true);
+        }
         break;
       }
       case 'previewScroll': {
@@ -1193,7 +1201,7 @@ export class PreviewController implements vscode.Disposable {
           maxLine,
           Math.max(
             0,
-            Number.isInteger(message.line)
+            typeof message.line === 'number' && Number.isInteger(message.line)
               ? message.line
               : Math.round(message.percent * maxLine)
           )
@@ -1280,10 +1288,18 @@ export class PreviewController implements vscode.Disposable {
           this.pendingHtmlExportSnapshot.requestId === message.requestId
         ) {
           clearTimeout(this.pendingHtmlExportSnapshot.timer);
-          this.pendingHtmlExportSnapshot.resolve({
-            html: message.html,
-            themeVariables: message.themeVariables
-          });
+          const pending = this.pendingHtmlExportSnapshot;
+          const matches = !message.error &&
+            message.documentUri === pending.documentUri &&
+            message.version === pending.version &&
+            message.renderRequestId === pending.renderRequestId &&
+            this.renderRequestId === pending.renderRequestId &&
+            this.currentEditor?.document.uri.toString() === pending.documentUri &&
+            this.currentEditor.document.version === pending.version;
+          pending.resolve(matches ? {
+              html: message.html,
+              themeVariables: message.themeVariables
+            } : undefined);
           this.pendingHtmlExportSnapshot = undefined;
         }
         break;
@@ -1394,11 +1410,13 @@ export class PreviewController implements vscode.Disposable {
     }
 
     if (remoteImagesChanged) {
-      this.panel.webview.html = await this.buildWebviewHtml(
+      const webviewHtml = await this.buildWebviewHtml(
         this.panel.webview,
         settings,
         nextCustomCssTexts
       );
+      this.updateWebviewReady(false);
+      this.panel.webview.html = webviewHtml;
     } else {
       this.postMessage({
         type: 'updateCustomCss',
@@ -1472,7 +1490,10 @@ export class PreviewController implements vscode.Disposable {
   private async requestRenderedHtmlExportSnapshot(): Promise<
     HtmlExportSnapshotData | undefined
   > {
-    if (!this.panel) return undefined;
+    const snapshot = this.state.snapshot;
+    if (!this.panel || !snapshot ||
+        this.currentEditor?.document.uri.toString() !== snapshot.uri.toString() ||
+        this.currentEditor.document.version !== snapshot.version) return undefined;
 
     if (this.pendingHtmlExportSnapshot) {
       clearTimeout(this.pendingHtmlExportSnapshot.timer);
@@ -1481,17 +1502,68 @@ export class PreviewController implements vscode.Disposable {
     }
 
     const requestId = ++this.htmlExportSnapshotReqId;
+    const identity = {
+      documentUri: snapshot.uri.toString(),
+      version: snapshot.version,
+      renderRequestId: this.renderRequestId
+    };
     return new Promise<HtmlExportSnapshotData | undefined>((resolve) => {
       const timer = setTimeout(() => {
         if (this.pendingHtmlExportSnapshot?.requestId === requestId) {
           this.pendingHtmlExportSnapshot.resolve(undefined);
           this.pendingHtmlExportSnapshot = undefined;
         }
-      }, 2000);
+      }, 10_000);
 
-      this.pendingHtmlExportSnapshot = { requestId, resolve, timer };
-      this.postMessage({ type: 'requestHtmlExportSnapshot', requestId });
+      this.pendingHtmlExportSnapshot = { requestId, ...identity, resolve, timer };
+      this.postMessage({ type: 'requestHtmlExportSnapshot', requestId, ...identity });
     });
+  }
+
+  private updateWebviewReady(ready: boolean): void {
+    this.webviewReady = ready;
+    if (!ready) this.webviewGeneration += 1;
+    for (const resolve of this.webviewReadyWaiters) resolve(ready);
+    this.webviewReadyWaiters.clear();
+  }
+
+  private waitForWebviewReady(): Promise<boolean> {
+    if (!this.panel) return Promise.resolve(false);
+    if (this.webviewReady) return Promise.resolve(true);
+    return new Promise((resolve) => {
+      const finish = (ready: boolean) => {
+        clearTimeout(timer);
+        this.webviewReadyWaiters.delete(finish);
+        resolve(ready);
+      };
+      const timer = setTimeout(() => finish(false), 10_000);
+      this.webviewReadyWaiters.add(finish);
+    });
+  }
+
+  private async prepareExportPreview(): Promise<boolean> {
+    if (!this.currentEditor) return false;
+    if (!this.panel) await this.openPreview(true);
+    if (!(await this.waitForWebviewReady())) {
+      this.reportExportSnapshotFailure();
+      return false;
+    }
+    if (this.renderTimer) {
+      clearTimeout(this.renderTimer);
+      this.renderTimer = undefined;
+    }
+    await this.renderNow();
+    if (!(await this.waitForWebviewReady())) {
+      this.reportExportSnapshotFailure();
+      return false;
+    }
+    return true;
+  }
+
+  private reportExportSnapshotFailure(): void {
+    void vscode.window.showErrorMessage(
+      'Export cancelled because the current preview was not ready. Wait for rendering to finish, then retry the export.'
+    );
   }
 
   private async handleOpenLink(href: string): Promise<void> {
@@ -1572,22 +1644,45 @@ export class PreviewController implements vscode.Disposable {
   }
 
   private async openLocalImage(src: string): Promise<void> {
-    const uri = vscode.Uri.parse(src, true);
-    const folder = this.currentEditor
-      ? vscode.workspace.getWorkspaceFolder(this.currentEditor.document.uri)
-      : undefined;
-    if (folder) {
-      const rel = path.relative(folder.uri.fsPath, uri.fsPath);
-      if (rel.startsWith('..') || path.isAbsolute(rel)) {
-        const answer = await vscode.window.showWarningMessage(
-          'This image is outside the workspace. Open anyway?',
-          { modal: true },
-          'Open'
-        );
-        if (answer !== 'Open') return;
-      }
+    const sourceUri = this.currentEditor?.document.uri;
+    const uri = await this.getAllowedLocalImageUri(src, sourceUri);
+    if (!uri) {
+      void vscode.window.showWarningMessage(
+        'This image could not be opened because it is not a local file within the document workspace or image cache.'
+      );
+      return;
     }
     await vscode.commands.executeCommand('vscode.open', uri);
+  }
+
+  private async getAllowedLocalImageUri(
+    src: string,
+    sourceUri: vscode.Uri | undefined
+  ): Promise<vscode.Uri | undefined> {
+    if (!sourceUri || !/^file:/i.test(src)) return undefined;
+    try {
+      const uri = vscode.Uri.parse(src, true);
+      if (uri.scheme !== 'file' || sourceUri.scheme !== 'file') return undefined;
+      const folder = vscode.workspace.getWorkspaceFolder(sourceUri);
+      const roots = [
+        folder?.uri ?? vscode.Uri.file(path.dirname(sourceUri.fsPath)),
+        vscode.Uri.joinPath(this.context.globalStorageUri, 'remote-images')
+      ];
+      const realTarget = await fs.realpath(uri.fsPath);
+      for (const root of roots) {
+        const relative = path.relative(root.fsPath, uri.fsPath);
+        if (relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) continue;
+        const realRoot = await fs.realpath(root.fsPath).catch(() => undefined);
+        if (!realRoot) continue;
+        const realRelative = path.relative(realRoot, realTarget);
+        if (realRelative !== '..' && !realRelative.startsWith(`..${path.sep}`) && !path.isAbsolute(realRelative)) {
+          return uri;
+        }
+      }
+    } catch {
+      // Missing, malformed, or inaccessible files are not authorized for reads.
+    }
+    return undefined;
   }
 
   private async downloadRemoteImageForPreview(src: string): Promise<void> {
@@ -1642,28 +1737,61 @@ export class PreviewController implements vscode.Disposable {
       throw new Error('Only http(s) URLs are supported');
     }
 
-    const response = await fetch(parsed.toString(), { redirect: 'follow' });
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status} ${response.statusText}`.trim());
-    }
-
-    const contentType = (
-      response.headers.get('content-type') ?? ''
-    ).toLowerCase();
-    if (!contentType.startsWith('image/')) {
-      throw new Error(
-        `URL did not return an image (${contentType || 'unknown content-type'})`
-      );
-    }
-
-    const data = new Uint8Array(await response.arrayBuffer());
-    if (data.byteLength === 0) {
-      throw new Error('Downloaded image is empty');
-    }
-
     const maxBytes = maxImageMB * 1024 * 1024;
-    if (data.byteLength > maxBytes) {
-      throw new Error(`Image exceeds preview.maxImageMB (${maxImageMB} MB)`);
+    const controller = new AbortController();
+    const timeout = setTimeout(() => {
+      controller.abort(new Error('Image download timed out after 30 seconds'));
+    }, 30_000);
+    let contentType: string;
+    let data: Uint8Array;
+    try {
+      const response = await fetch(parsed.toString(), {
+        redirect: 'follow',
+        signal: controller.signal
+      });
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status} ${response.statusText}`.trim());
+      }
+      contentType = (response.headers.get('content-type') ?? '').toLowerCase();
+      if (!contentType.startsWith('image/')) {
+        throw new Error(
+          `URL did not return an image (${contentType || 'unknown content-type'})`
+        );
+      }
+      if (Number(response.headers.get('content-length')) > maxBytes) {
+        throw new Error(`Image exceeds preview.maxImageMB (${maxImageMB} MB)`);
+      }
+      if (!response.body) throw new Error('Downloaded image is empty');
+
+      const reader = response.body.getReader();
+      const chunks: Uint8Array[] = [];
+      let length = 0;
+      try {
+        let chunk = await reader.read();
+        while (!chunk.done) {
+          length += chunk.value.byteLength;
+          if (length > maxBytes) {
+            throw new Error(`Image exceeds preview.maxImageMB (${maxImageMB} MB)`);
+          }
+          chunks.push(chunk.value);
+          chunk = await reader.read();
+        }
+      } finally {
+        await reader.cancel().catch(() => undefined);
+        reader.releaseLock();
+      }
+      if (length === 0) throw new Error('Downloaded image is empty');
+      data = new Uint8Array(length);
+      let offset = 0;
+      for (const chunk of chunks) {
+        data.set(chunk, offset);
+        offset += chunk.byteLength;
+      }
+    } catch (error) {
+      throw controller.signal.aborted ? controller.signal.reason : error;
+    } finally {
+      clearTimeout(timeout);
+      controller.abort();
     }
 
     const targetDir = await this.resolveRemoteImageCacheDir(documentUri);
@@ -1810,7 +1938,8 @@ export class PreviewController implements vscode.Disposable {
 
   private async embedLocalImages(
     html: string,
-    maxImageMB: number
+    maxImageMB: number,
+    sourceUri: vscode.Uri
   ): Promise<string> {
     return mapHtmlImgTagsAsync(html, async (tag) => {
       const parsed = parseHtmlImgTag(tag);
@@ -1824,9 +1953,9 @@ export class PreviewController implements vscode.Disposable {
       let changed = false;
 
       if (localSrc) {
-        const localUri = vscode.Uri.parse(localSrc, true);
-        const bytes = await fileSizeBytes(localUri).catch(() => 0);
-        if (bytes > 0 && bytes <= maxImageMB * 1024 * 1024) {
+        const localUri = await this.getAllowedLocalImageUri(localSrc, sourceUri);
+        const bytes = localUri ? await fileSizeBytes(localUri).catch(() => 0) : 0;
+        if (localUri && bytes > 0 && bytes <= maxImageMB * 1024 * 1024) {
           const dataUri = await toDataUri(localUri).catch(() => undefined);
           if (dataUri) {
             setHtmlAttribute(
@@ -1846,7 +1975,8 @@ export class PreviewController implements vscode.Disposable {
               return candidate;
             }
 
-            const localUri = vscode.Uri.parse(candidate.url, true);
+            const localUri = await this.getAllowedLocalImageUri(candidate.url, sourceUri);
+            if (!localUri) return candidate;
             const bytes = await fileSizeBytes(localUri).catch(() => 0);
             if (bytes <= 0 || bytes > maxImageMB * 1024 * 1024) {
               return candidate;
@@ -2042,8 +2172,23 @@ export class PreviewController implements vscode.Disposable {
     sourceUri: vscode.Uri,
     settings: RuntimeSettings,
     themeVariables?: Record<string, string>,
-    forPdf = false
+    forPdf = false,
+    sourceFrontmatter?: RenderedDocumentSnapshot['frontmatter']
   ): Promise<string> {
+    const exportNonce = createNonce();
+    const csp = [
+      "default-src 'none'",
+      `img-src file: data: blob:${settings.allowRemoteImages ? ' https: http:' : ''}`,
+      "style-src 'unsafe-inline' file:",
+      'font-src file: data:',
+      forPdf ? `script-src 'nonce-${exportNonce}'` : "script-src 'none'",
+      "connect-src 'none'",
+      'media-src file: data:',
+      "object-src 'none'",
+      "frame-src 'none'",
+      "base-uri 'none'",
+      "form-action 'none'"
+    ].join('; ');
     const cssPath = vscode.Uri.joinPath(
       this.context.extensionUri,
       'dist',
@@ -2062,15 +2207,15 @@ export class PreviewController implements vscode.Disposable {
       .map((cssText, index) =>
         inlineCssTag(
           cssText,
-          'omv-export-custom-css',
+          exportNonce,
           ` data-omv-custom-css="${index}"`
         )
       )
       .join('\n');
 
     const frontmatter =
-      settings.showFrontmatter && this.state.snapshot?.frontmatter
-        ? `<details open><summary>Frontmatter</summary><pre>${escapeHtml(this.state.snapshot.frontmatter.raw)}</pre></details>`
+      settings.showFrontmatter && sourceFrontmatter
+        ? `<details open><summary>Frontmatter</summary><pre>${escapeHtml(sourceFrontmatter.raw)}</pre></details>`
         : '';
     const githubStyleAttributes = buildGitHubMarkdownStyleAttributes(
       settings.useMarkdownPreviewGithubStyling
@@ -2087,7 +2232,7 @@ ${bodyHtml}
     const pdfDocumentAttribute = forPdf ? ' data-omv-pdf-ready="pending"' : '';
     const pdfDocumentMarker = forPdf ? `\n${PDF_EXPORT_DOCUMENT_MARKER}` : '';
     const pdfReadinessScript = forPdf
-      ? `<script>
+      ? `<script nonce="${exportNonce}">
 (async () => {
   if (document.readyState !== 'complete') {
     await new Promise((resolve) => window.addEventListener('load', resolve, { once: true }));
@@ -2110,6 +2255,7 @@ ${bodyHtml}
 <html lang="en"${pdfDocumentAttribute}>
 <head>
 <meta charset="UTF-8" />
+<meta http-equiv="Content-Security-Policy" content="${escapeHtml(csp)}" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />${pdfDocumentMarker}
 <title>${escapeHtml(path.basename(sourceUri.fsPath))}</title>
 <style>${baseCss}</style>
@@ -2126,6 +2272,7 @@ ${pdfReadinessScript}</body>
   }
 
   dispose(): void {
+    this.updateWebviewReady(false);
     if (this.renderTimer) clearTimeout(this.renderTimer);
     if (this.pendingHtmlExportSnapshot) {
       clearTimeout(this.pendingHtmlExportSnapshot.timer);

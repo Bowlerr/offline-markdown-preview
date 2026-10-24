@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { access } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { spawn } from 'node:child_process';
 import { createRequire } from 'node:module';
@@ -6,54 +6,57 @@ import { downloadAndUnzipVSCode } from '@vscode/test-electron';
 
 const root = process.cwd();
 const require = createRequire(import.meta.url);
-const fixtureDir = resolve(root, '.e2e-workspace');
-const userDataDir = resolve(root, '.e2e-user-data');
-const extensionsDir = resolve(root, '.e2e-extensions');
-mkdirSync(fixtureDir, { recursive: true });
-mkdirSync(userDataDir, { recursive: true });
-mkdirSync(extensionsDir, { recursive: true });
 
-// Preserve checked-in fixtures. Only create a minimal fallback when running in a fresh workspace.
-const fallbackSamplePath = join(fixtureDir, 'sample.md');
-if (!existsSync(fallbackSamplePath)) {
-  writeFileSync(
-    fallbackSamplePath,
-    `# Sample\n\n## Mermaid\n\n\`\`\`mermaid\ngraph TD; A-->B;\n\`\`\`\n\n## Math\n\nInline $a^2+b^2=c^2$\n`,
-    'utf8'
+if (
+  process.platform === 'linux' &&
+  !process.env.DISPLAY &&
+  !process.env.WAYLAND_DISPLAY
+) {
+  throw new Error(
+    'VS Code E2E requires a display. Run xvfb-run -a npm run test:e2e on headless Linux.'
   );
 }
 
-const executablePath = await downloadAndUnzipVSCode('stable');
-const playwrightCliPath = join(dirname(require.resolve('playwright')), 'cli.js');
-const versionArgs = process.platform === 'linux' ? ['--no-sandbox', '--version'] : ['--version'];
-const isHeadlessLinux = process.platform === 'linux' && !process.env.DISPLAY && !process.env.WAYLAND_DISPLAY;
-
-// Validate the downloaded VS Code binary directly when a display server is available.
-if (isHeadlessLinux) {
-  console.log('Skipping VS Code --version smoke check on headless Linux (no DISPLAY/WAYLAND_DISPLAY).');
+// Test either the built extension or the installed package, never silently fall back.
+if (process.env.OMV_E2E_VSIX_PATH) {
+  await access(resolve(process.env.OMV_E2E_VSIX_PATH));
 } else {
-  await run(executablePath, versionArgs);
+  await access(resolve(root, 'dist/extension/activate.js'));
+  await access(resolve(root, 'dist/webview-ui/index.js'));
 }
 
-await run(process.execPath, [playwrightCliPath, 'test', 'test/e2e', '--workers=1'], {
-  env: {
-    ...process.env,
-    RUN_VSCODE_E2E: '1',
-    VSCODE_EXECUTABLE_PATH: executablePath,
-    OMV_E2E_WORKSPACE: fixtureDir,
-    OMV_E2E_EXTENSION_DEV_PATH: root,
-    OMV_E2E_USER_DATA_DIR: userDataDir,
-    OMV_E2E_EXTENSIONS_DIR: extensionsDir
-  }
-});
+const executablePath =
+  process.env.VSCODE_EXECUTABLE_PATH ||
+  (await downloadAndUnzipVSCode(
+    process.env.OMV_E2E_VSCODE_VERSION || 'stable'
+  ));
+const playwrightCliPath = join(
+  dirname(require.resolve('playwright')),
+  'cli.js'
+);
+const env = { ...process.env, VSCODE_EXECUTABLE_PATH: executablePath };
+// VS Code/Electron must start as an application, including when called by an Electron terminal host.
+delete env.ELECTRON_RUN_AS_NODE;
 
-function run(command, args, options = {}) {
-  return new Promise((resolvePromise, reject) => {
-    const child = spawn(command, args, { stdio: 'inherit', shell: process.platform === 'win32', ...options });
-    child.on('exit', (code) => {
-      if (code === 0) resolvePromise();
-      else reject(new Error(`${command} ${args.join(' ')} failed with code ${code}`));
-    });
-    child.on('error', reject);
+await new Promise((resolvePromise, reject) => {
+  const child = spawn(
+    process.execPath,
+    [
+      playwrightCliPath,
+      'test',
+      '--config',
+      'test/e2e/playwright.config.ts',
+      ...process.argv.slice(2)
+    ],
+    {
+      stdio: 'inherit',
+      env
+    }
+  );
+  child.on('exit', (code, signal) => {
+    if (code === 0) resolvePromise();
+    else
+      reject(new Error(`VS Code E2E failed (code ${code}, signal ${signal}).`));
   });
-}
+  child.on('error', reject);
+});
