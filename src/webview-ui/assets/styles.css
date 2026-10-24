@@ -99,6 +99,7 @@ input {
 
 .omv-chrome {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 0.5rem;
   padding: 0.35rem 0.75rem;
@@ -186,10 +187,20 @@ input {
   background: var(--omv-accent-weak);
 }
 
+.omv-toolbar button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+#app :is(button, input, a, [tabindex]):focus-visible {
+  outline: 2px solid var(--vscode-focusBorder, Highlight);
+  outline-offset: 2px;
+}
+
 .omv-meta {
   color: var(--omv-muted);
   font-size: 12px;
-  min-width: 7rem;
+  min-width: 0;
   text-align: right;
   margin-left: auto;
 }
@@ -240,6 +251,7 @@ input {
 
 .omv-preview-scroll {
   min-height: 0;
+  min-width: 0;
   overflow: auto;
   position: relative;
 }
@@ -549,12 +561,8 @@ input {
 }
 
 .omv-content .omv-mermaid-viewport:focus-visible {
-  box-shadow: 0 0 0 2px
-    color-mix(
-      in srgb,
-      var(--omv-mermaid-accent, var(--omv-accent)) 14%,
-      transparent
-    );
+  outline: 2px solid var(--vscode-focusBorder, Highlight);
+  outline-offset: -2px;
 }
 
 .omv-content .omv-mermaid-viewport.is-dragging {

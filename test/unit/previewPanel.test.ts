@@ -221,7 +221,8 @@ function createPreviewPanelTestContext(options: {
     workspaceFolders,
     textDocuments: [],
     fs: {
-      writeFile: workspaceWriteFile
+      writeFile: workspaceWriteFile,
+      createDirectory: vi.fn().mockResolvedValue(undefined)
     },
     getWorkspaceFolder(uri: InstanceType<typeof Uri>) {
       return workspaceFolders.find((folder) => {
@@ -349,7 +350,7 @@ function createPreviewPanelTestContext(options: {
       options.workspaceFilePath
         ? Uri.file(path.dirname(options.workspaceFilePath))
         : options.workspaceFolderPaths.length === 1
-          ? Uri.file(options.workspaceFolderPaths[0])
+          ? Uri.file(options.workspaceFolderPaths[0]!)
           : undefined
     ),
     inlineCssTag: vi.fn(
@@ -358,11 +359,12 @@ function createPreviewPanelTestContext(options: {
     ),
     resolveCustomCss: vi.fn(async () => ({
       key: 'custom-css',
-      cssTexts: []
+      cssTexts: [] as string[]
     }))
   };
 
   const fsMock = {
+    realpath: vi.fn().mockImplementation(async (value: string) => value),
     access: vi.fn().mockResolvedValue(undefined),
     mkdtemp: vi.fn().mockResolvedValue('/tmp/omv-pdf-test'),
     writeFile: vi.fn().mockResolvedValue(undefined),
@@ -418,6 +420,7 @@ async function loadPreviewPanelTestModule(
 
 afterEach(() => {
   vi.useRealTimers();
+  vi.unstubAllGlobals();
   vi.resetModules();
   vi.doUnmock('vscode');
   vi.doUnmock('../../src/extension/preview/markdown/markdownPipeline');
@@ -486,7 +489,7 @@ describe('PreviewController panel lifecycle', () => {
     await vi.runAllTimersAsync();
 
     expect(vscodeMock.window.createWebviewPanel).toHaveBeenCalled();
-    expect(vscodeMock.window.createWebviewPanel.mock.calls[0][2]).toBe(3);
+    expect(vscodeMock.window.createWebviewPanel.mock.calls[0]![2]).toBe(3);
   });
 
   it('does not auto-reveal an existing hidden preview tab on markdown switches', async () => {
@@ -891,6 +894,8 @@ describe('PreviewController custom CSS', () => {
       },
       {
         '--omv-active-pre-bg': 'rgb(1, 2, 3)',
+        '--omv-bg': 'rgb(30, 30, 30)',
+        '--omv-fg': 'rgb(204, 204, 204)',
         '--omv-mermaid-border': 'rgb(4, 5, 6)'
       }
     );
@@ -909,10 +914,10 @@ describe('PreviewController custom CSS', () => {
       '<style data-omv-custom-css="2">@import url("https://example.com/theme.css");</style>'
     );
     expect(html).toContain(
-      '<div class="omv-content markdown-body github-markdown-body" data-color-mode="light" data-light-theme="light" data-dark-theme="dark" style="--omv-active-pre-bg: rgb(1, 2, 3); --omv-mermaid-border: rgb(4, 5, 6);">'
+      '<div class="omv-content markdown-body github-markdown-body" data-color-mode="light" data-light-theme="light" data-dark-theme="dark" style="--omv-active-pre-bg: rgb(1, 2, 3); --omv-bg: rgb(30, 30, 30); --omv-fg: rgb(204, 204, 204); --omv-mermaid-border: rgb(4, 5, 6);">'
     );
     expect(html).toContain('<div class="github-markdown-content">');
-    expect(html).toContain('<body class="vscode-body vscode-dark">');
+    expect(html).toContain('<body class="vscode-body vscode-dark" style="--omv-active-pre-bg: rgb(1, 2, 3); --omv-bg: rgb(30, 30, 30); --omv-fg: rgb(204, 204, 204); --omv-mermaid-border: rgb(4, 5, 6);">');
     expect(html).toContain(
       '<div class="github-markdown-content">\n<p>Rendered</p>\n</div>'
     );
@@ -924,6 +929,27 @@ describe('PreviewController custom CSS', () => {
     );
     expect(html).not.toContain('offline-markdown-preview-export');
     expect(html).not.toContain('data-omv-pdf-ready');
+  });
+
+  it('keeps captured frontmatter when the active document changes during export preparation', async () => {
+    const { module, securityMock } = await loadPreviewPanelTestModule({ workspaceFolderPaths: ['/workspace-a'] });
+    const controller = new module.PreviewController({
+      extensionUri: Uri.file('/extension'), globalStorageUri: Uri.file('/global-storage')
+    } as any);
+    securityMock.resolveCustomCss.mockImplementation(async () => {
+      (controller as any).state = { snapshot: {
+        uri: Uri.file('/workspace-a/private.md'),
+        frontmatter: { raw: 'title: Other private document', data: {} }
+      }, toc: [] };
+      return { key: 'custom-css', cssTexts: [] };
+    });
+    const html = await (controller as any).buildStandaloneHtml(
+      '<p>Original body</p>', Uri.file('/workspace-a/original.md'),
+      { showFrontmatter: true }, undefined, false,
+      { raw: 'title: Original document', data: {} }
+    );
+    expect(html).toContain('title: Original document');
+    expect(html).not.toContain('Other private document');
   });
 
   it('builds PDF HTML that waits for local images and fonts', async () => {
@@ -1063,7 +1089,8 @@ describe('PreviewController custom CSS', () => {
 
     const html = await (controller as any).embedLocalImages(
       '<p><img data-omv-local-src="file:///workspace-a/images/icons.svg#logo" src="file:///workspace-a/images/icons.svg#logo" /></p>',
-      24
+      24,
+      Uri.file('/workspace-a/doc.md')
     );
 
     expect(html).toContain('src="data:image/svg+xml;base64,PHN2ZyAvPg==#logo"');
@@ -1314,6 +1341,234 @@ describe('PreviewController custom CSS', () => {
     expect(fsMock.stat).not.toHaveBeenCalled();
   });
 
+  it('waits for a cold webview to become ready before requesting the export snapshot', async () => {
+    const { module, vscodeMock, workspaceWriteFile } = await loadPreviewPanelTestModule({
+      workspaceFolderPaths: ['/workspace-a'], activeEditorPath: '/workspace-a/doc.md',
+      saveDialogPath: '/workspace-a/output.html'
+    });
+    const controller = new module.PreviewController({
+      extensionUri: Uri.file('/extension'), globalStorageUri: Uri.file('/global-storage')
+    } as any);
+    const exported = controller.exportHtml();
+    await vi.waitFor(() => expect((controller as any).panel?.webview.html).toContain('<!DOCTYPE html>'));
+    const postMessage = (controller as any).panel.webview.postMessage;
+    expect(postMessage).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'requestHtmlExportSnapshot' }));
+    postMessage.mockImplementation((message: any) => {
+      if (message.type === 'requestHtmlExportSnapshot') {
+        void (controller as any).handleWebviewMessage({
+          ...message, type: 'htmlExportSnapshot', html: '<p>Completed preview</p>'
+        });
+      }
+      return Promise.resolve(true);
+    });
+    await (controller as any).handleWebviewMessage({ type: 'ready' });
+    await exported;
+    expect(workspaceWriteFile).toHaveBeenCalledWith(Uri.file('/workspace-a/output.html'), expect.any(Buffer));
+    expect(workspaceWriteFile.mock.calls[0]![1].toString()).toContain('<p>Completed preview</p>');
+    expect(vscodeMock.window.showErrorMessage).not.toHaveBeenCalled();
+  });
+
+  it.each(['exportHtml', 'exportPdf'] as const)('fails safely when %s cannot obtain a rendered snapshot', async (method) => {
+    const { module, vscodeMock, workspaceWriteFile, fsMock } = await loadPreviewPanelTestModule({
+      workspaceFolderPaths: ['/workspace-a'],
+      saveDialogPath: '/workspace-a/output.html'
+    });
+    const controller = new module.PreviewController({
+      extensionUri: Uri.file('/extension'), globalStorageUri: Uri.file('/global-storage')
+    } as any);
+    (controller as any).currentEditor = createTextEditor('/workspace-a/doc.md');
+    (controller as any).panel = { webview: { postMessage: vi.fn() } };
+    (controller as any).webviewReady = true;
+    (controller as any).state = { snapshot: {
+      uri: Uri.file('/workspace-a/doc.md'), version: 1,
+      html: '<script>unsafe()</script>'
+    }, toc: [] };
+    (controller as any).renderNow = vi.fn().mockResolvedValue(undefined);
+    (controller as any).requestRenderedHtmlExportSnapshot = vi.fn().mockResolvedValue(undefined);
+
+    await controller[method]();
+
+    expect(vscodeMock.window.showErrorMessage).toHaveBeenCalledWith(expect.stringContaining('Export cancelled'));
+    expect(vscodeMock.window.showSaveDialog).not.toHaveBeenCalled();
+    expect(workspaceWriteFile).not.toHaveBeenCalled();
+    expect(fsMock.writeFile).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    { documentUri: 'file:///workspace-a/other.md' },
+    { version: 2 },
+    { renderRequestId: 4 },
+    { error: 'Preview has not finished rendering' }
+  ])('rejects stale or failed export snapshots: %j', async (override) => {
+    const { module } = await loadPreviewPanelTestModule({ workspaceFolderPaths: ['/workspace-a'] });
+    const controller = new module.PreviewController({
+      extensionUri: Uri.file('/extension'), globalStorageUri: Uri.file('/global-storage')
+    } as any);
+    (controller as any).currentEditor = createTextEditor('/workspace-a/doc.md');
+    (controller as any).panel = { webview: { postMessage: vi.fn() } };
+    (controller as any).webviewReady = true;
+    (controller as any).state = { snapshot: { uri: Uri.file('/workspace-a/doc.md'), version: 1 }, toc: [] };
+    (controller as any).renderRequestId = 3;
+    const pending = (controller as any).requestRenderedHtmlExportSnapshot();
+    await (controller as any).handleWebviewMessage({
+      type: 'htmlExportSnapshot', requestId: 1,
+      documentUri: 'file:///workspace-a/doc.md', version: 1, renderRequestId: 3,
+      html: '<p>Rendered</p>', ...override
+    });
+    await expect(pending).resolves.toBeUndefined();
+  });
+
+  it('accepts a matching completed export snapshot and times out without raw HTML fallback', async () => {
+    vi.useFakeTimers();
+    const { module } = await loadPreviewPanelTestModule({ workspaceFolderPaths: ['/workspace-a'] });
+    const controller = new module.PreviewController({
+      extensionUri: Uri.file('/extension'), globalStorageUri: Uri.file('/global-storage')
+    } as any);
+    (controller as any).currentEditor = createTextEditor('/workspace-a/doc.md');
+    const postMessage = vi.fn();
+    (controller as any).panel = { webview: { postMessage } };
+    (controller as any).state = { snapshot: { uri: Uri.file('/workspace-a/doc.md'), version: 1 }, toc: [] };
+    (controller as any).renderRequestId = 3;
+    const pending = (controller as any).requestRenderedHtmlExportSnapshot();
+    expect(postMessage).toHaveBeenCalledWith({
+      type: 'requestHtmlExportSnapshot', requestId: 1,
+      documentUri: 'file:///workspace-a/doc.md', version: 1, renderRequestId: 3
+    });
+    await (controller as any).handleWebviewMessage({
+      type: 'htmlExportSnapshot', requestId: 1,
+      documentUri: 'file:///workspace-a/doc.md', version: 1, renderRequestId: 3,
+      html: '<p>Rendered</p>'
+    });
+    await expect(pending).resolves.toMatchObject({ html: '<p>Rendered</p>' });
+    const timedOut = (controller as any).requestRenderedHtmlExportSnapshot();
+    await vi.advanceTimersByTimeAsync(10_000);
+    await expect(timedOut).resolves.toBeUndefined();
+  });
+
+  it('refuses local file embedding outside the workspace, including symlink escapes and forged srcset', async () => {
+    const { module, fsMock } = await loadPreviewPanelTestModule({ workspaceFolderPaths: ['/workspace-a'] });
+    const controller = new module.PreviewController({
+      extensionUri: Uri.file('/extension'), globalStorageUri: Uri.file('/global-storage')
+    } as any);
+    fsMock.realpath.mockImplementation(async (value: string) => value.includes('/linked/') ? '/outside/private.txt' : value);
+    const html = '<img data-omv-local-src="file:///outside/private.txt" srcset="file:///workspace-a/linked/private.txt 1x, file:///outside/private.txt 2x">';
+    expect(await (controller as any).embedLocalImages(html, 24, Uri.file('/workspace-a/doc.md'))).toBe(html);
+    expect(fsMock.readFile).not.toHaveBeenCalled();
+    expect(fsMock.stat).not.toHaveBeenCalled();
+  });
+
+  it('opens only authorized local image paths and rejects non-file image actions', async () => {
+    const { module, vscodeMock } = await loadPreviewPanelTestModule({ workspaceFolderPaths: ['/workspace-a'] });
+    const controller = new module.PreviewController({
+      extensionUri: Uri.file('/extension'), globalStorageUri: Uri.file('/global-storage')
+    } as any);
+    (controller as any).currentEditor = createTextEditor('/workspace-a/doc.md');
+    for (const src of ['command:workbench.action.closeWindow', 'https://example.com', 'file:///outside/private.txt']) {
+      await (controller as any).openLocalImage(src);
+    }
+    expect(vscodeMock.commands.executeCommand).not.toHaveBeenCalled();
+    await (controller as any).openLocalImage('file:///workspace-a/image.png');
+    expect(vscodeMock.commands.executeCommand).toHaveBeenCalledWith('vscode.open', Uri.file('/workspace-a/image.png'));
+  });
+
+  it.each([false, true])('applies standalone CSP with remote image opt-in %s and a PDF readiness nonce', async (allowRemoteImages) => {
+    const { module } = await loadPreviewPanelTestModule({ workspaceFolderPaths: ['/workspace-a'] });
+    const controller = new module.PreviewController({
+      extensionUri: Uri.file('/extension'), globalStorageUri: Uri.file('/global-storage')
+    } as any);
+    const html = await (controller as any).buildStandaloneHtml(
+      '<img src="https://example.com/tracker.png">', Uri.file('/workspace-a/doc.md'),
+      { allowRemoteImages, showFrontmatter: false }, undefined, true
+    );
+    const policy = /http-equiv="Content-Security-Policy" content="([^"]+)"/.exec(html)?.[1];
+    expect(policy).toContain(`img-src file: data: blob:${allowRemoteImages ? ' https: http:' : ''};`);
+    expect(policy).toContain("style-src 'unsafe-inline' file:");
+    expect(policy).toContain('font-src file: data:');
+    expect(policy).toContain("connect-src 'none'");
+    expect(policy).toContain("script-src 'nonce-nonce'");
+    expect(html).toContain('<script nonce="nonce">');
+    expect(html.indexOf('Content-Security-Policy')).toBeLessThan(html.indexOf('<style>'));
+    const plainHtml = await (controller as any).buildStandaloneHtml('', Uri.file('/workspace-a/doc.md'), { allowRemoteImages });
+    expect(plainHtml).toContain("script-src 'none'");
+  });
+
+  it('rejects oversized image responses before reading their declared body', async () => {
+    const { module, workspaceWriteFile } = await loadPreviewPanelTestModule({ workspaceFolderPaths: ['/workspace-a'] });
+    const controller = new module.PreviewController({
+      extensionUri: Uri.file('/extension'), globalStorageUri: Uri.file('/global-storage')
+    } as any);
+    const getReader = vi.fn();
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      headers: new Headers({ 'content-type': 'image/png', 'content-length': String(2 * 1024 * 1024) }),
+      body: { getReader }
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    await expect((controller as any).downloadRemoteImageToCache('https://example.com/image.png', Uri.file('/workspace-a/doc.md'), 1))
+      .rejects.toThrow('exceeds preview.maxImageMB');
+    expect(getReader).not.toHaveBeenCalled();
+    expect(workspaceWriteFile).not.toHaveBeenCalled();
+    expect(fetchMock.mock.calls[0]![1].signal.aborted).toBe(true);
+  });
+
+  it('stops chunked image downloads at the byte limit without buffering the remainder', async () => {
+    const { module, workspaceWriteFile } = await loadPreviewPanelTestModule({ workspaceFolderPaths: ['/workspace-a'] });
+    const controller = new module.PreviewController({
+      extensionUri: Uri.file('/extension'), globalStorageUri: Uri.file('/global-storage')
+    } as any);
+    const reader = {
+      read: vi.fn()
+        .mockResolvedValueOnce({ done: false, value: new Uint8Array(700_000) })
+        .mockResolvedValueOnce({ done: false, value: new Uint8Array(700_000) })
+        .mockResolvedValueOnce({ done: false, value: new Uint8Array(700_000) }),
+      cancel: vi.fn().mockResolvedValue(undefined), releaseLock: vi.fn()
+    };
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true, headers: new Headers({ 'content-type': 'image/png' }),
+      body: { getReader: () => reader }
+    }));
+    await expect((controller as any).downloadRemoteImageToCache('https://example.com/image.png', Uri.file('/workspace-a/doc.md'), 1))
+      .rejects.toThrow('exceeds preview.maxImageMB');
+    expect(reader.read).toHaveBeenCalledTimes(2);
+    expect(reader.cancel).toHaveBeenCalledOnce();
+    expect(reader.releaseLock).toHaveBeenCalledOnce();
+    expect(workspaceWriteFile).not.toHaveBeenCalled();
+  });
+
+  it('writes a completed bounded image download to the local cache', async () => {
+    const { module, workspaceWriteFile } = await loadPreviewPanelTestModule({ workspaceFolderPaths: ['/workspace-a'] });
+    const controller = new module.PreviewController({
+      extensionUri: Uri.file('/extension'), globalStorageUri: Uri.file('/global-storage')
+    } as any);
+    const reader = {
+      read: vi.fn().mockResolvedValueOnce({ done: false, value: new Uint8Array([1, 2, 3]) }).mockResolvedValueOnce({ done: true }),
+      cancel: vi.fn().mockResolvedValue(undefined), releaseLock: vi.fn()
+    };
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true, headers: new Headers({ 'content-type': 'image/png' }),
+      body: { getReader: () => reader }
+    }));
+    const target = await (controller as any).downloadRemoteImageToCache('https://example.com/image.png', Uri.file('/workspace-a/doc.md'), 1);
+    expect(target.fsPath).toContain('/workspace-a/.offline-markdown-preview/remote-images/');
+    expect(workspaceWriteFile).toHaveBeenCalledWith(target, new Uint8Array([1, 2, 3]));
+  });
+
+  it('aborts a stalled image download after its deadline', async () => {
+    vi.useFakeTimers();
+    const { module, workspaceWriteFile } = await loadPreviewPanelTestModule({ workspaceFolderPaths: ['/workspace-a'] });
+    const controller = new module.PreviewController({
+      extensionUri: Uri.file('/extension'), globalStorageUri: Uri.file('/global-storage')
+    } as any);
+    vi.stubGlobal('fetch', vi.fn((_url: string, options: { signal: AbortSignal }) => new Promise((_resolve, reject) => {
+      options.signal.addEventListener('abort', () => reject(options.signal.reason), { once: true });
+    })));
+    const pending = (controller as any).downloadRemoteImageToCache('https://example.com/image.png', Uri.file('/workspace-a/doc.md'), 1);
+    const rejected = expect(pending).rejects.toThrow('timed out after 30 seconds');
+    await vi.advanceTimersByTimeAsync(30_000);
+    await rejected;
+    expect(workspaceWriteFile).not.toHaveBeenCalled();
+  });
+
   it('stages a successful PDF and cleans temporary files after copying it', async () => {
     const { fsMock, module, vscodeMock, workspaceWriteFile } =
       await loadPreviewPanelTestModule({
@@ -1328,6 +1583,7 @@ describe('PreviewController custom CSS', () => {
       '/workspace-a/nested/résumé #1.md'
     );
     (controller as any).panel = { webview: { postMessage: vi.fn() } };
+    (controller as any).webviewReady = true;
     (controller as any).state = {
       snapshot: {
         uri: Uri.file('/workspace-a/nested/résumé #1.md'),
@@ -1337,7 +1593,8 @@ describe('PreviewController custom CSS', () => {
     };
     (controller as any).requestRenderedHtmlExportSnapshot = vi
       .fn()
-      .mockResolvedValue(undefined);
+      .mockResolvedValue({ html: '<p>Rendered</p>' });
+    (controller as any).renderNow = vi.fn().mockResolvedValue(undefined);
     (controller as any).buildStandaloneHtml = vi
       .fn()
       .mockResolvedValue('<html>PDF fixture</html>');
@@ -1378,6 +1635,7 @@ describe('PreviewController custom CSS', () => {
     } as any);
     (controller as any).currentEditor = createTextEditor('/workspace-a/doc.md');
     (controller as any).panel = { webview: { postMessage: vi.fn() } };
+    (controller as any).webviewReady = true;
     (controller as any).state = {
       snapshot: {
         uri: Uri.file('/workspace-a/doc.md'),
@@ -1387,7 +1645,8 @@ describe('PreviewController custom CSS', () => {
     };
     (controller as any).requestRenderedHtmlExportSnapshot = vi
       .fn()
-      .mockResolvedValue(undefined);
+      .mockResolvedValue({ html: '<p>Rendered</p>' });
+    (controller as any).renderNow = vi.fn().mockResolvedValue(undefined);
     (controller as any).buildStandaloneHtml = vi
       .fn()
       .mockResolvedValue('<html>PDF fixture</html>');

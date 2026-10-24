@@ -1,103 +1,181 @@
-export class PreviewSearch {
-  private hits: HTMLElement[] = [];
-  private index = -1;
+interface TextRun {
+  root: Element;
+  nodes: Text[];
+  text: string;
+}
 
-  constructor(private readonly container: HTMLElement, private readonly onCount: (count: number, index: number) => void) {}
+interface SearchHit {
+  marks: HTMLElement[];
+}
+
+// Keep phrases within a reading block, while joining inline formatting and Prism tokens.
+const BLOCKS = 'p, pre, h1, h2, h3, h4, h5, h6, li, td, th, dt, dd, blockquote, div';
+const EXCLUDED = 'script, style, noscript, textarea, select, button, [hidden], [aria-hidden="true"], .katex, .omv-mermaid, .omv-heading-anchor, .omv-remote-image';
+export const SEARCH_RESULT_LIMIT = 1000;
+
+export class PreviewSearch {
+  private hits: SearchHit[] = [];
+  private index = -1;
+  private truncated = false;
+
+  constructor(
+    private readonly container: HTMLElement,
+    private readonly onCount: (count: number, index: number, truncated: boolean) => void
+  ) {}
 
   clear(): void {
-    for (const el of this.hits) {
-      const parent = el.parentNode;
-      if (!parent) continue;
-      while (el.firstChild) {
-        parent.insertBefore(el.firstChild, el);
-      }
-      parent.removeChild(el);
-      parent.normalize();
-    }
-    this.hits = [];
-    this.index = -1;
-    this.onCount(0, -1);
+    this.removeHighlights();
+    this.onCount(0, -1, false);
   }
 
-  query(term: string | undefined | null): void {
-    this.clear();
-    const q = typeof term === 'string' ? term.trim() : '';
-    if (!q) return;
-    const matcher = new RegExp(escapeRegExp(q), 'gi');
-    const walker = document.createTreeWalker(this.container, NodeFilter.SHOW_TEXT, {
-      acceptNode(node) {
-        if (!node.nodeValue || !node.nodeValue.trim()) return NodeFilter.FILTER_REJECT;
-        const parent = node.parentElement;
-        if (!parent) return NodeFilter.FILTER_REJECT;
-        if (parent.closest('script, style, pre')) return NodeFilter.FILTER_REJECT;
-        return NodeFilter.FILTER_ACCEPT;
-      }
-    });
-
-    const textNodes: Text[] = [];
-    let n: Node | null;
-    while ((n = walker.nextNode())) {
-      if (n.nodeType === Node.TEXT_NODE) {
-        textNodes.push(n as Text);
-      }
+  query(
+    term: string | undefined | null,
+    options: { reveal?: boolean; preserveIndex?: boolean } = {}
+  ): void {
+    const previousIndex = this.index;
+    this.removeHighlights();
+    const query = typeof term === 'string' ? term.trim() : '';
+    if (!query) {
+      this.onCount(0, -1, false);
+      return;
     }
 
-    for (const textNode of textNodes) {
-      const value = textNode.nodeValue ?? '';
-      matcher.lastIndex = 0;
-      if (!matcher.test(value)) continue;
-      matcher.lastIndex = 0;
-      const frag = document.createDocumentFragment();
-      let last = 0;
-      for (const match of value.matchAll(matcher)) {
-        const start = match.index ?? 0;
-        const end = start + match[0].length;
-        if (start > last) {
-          frag.appendChild(document.createTextNode(value.slice(last, start)));
+    const matcher = new RegExp(escapeRegExp(query), 'gi');
+    for (const run of this.collectTextRuns()) {
+      const matches: Array<{ start: number; end: number; hit: SearchHit }> = [];
+      for (const match of run.text.matchAll(matcher)) {
+        // One additional match establishes that the result is capped, without
+        // constructing or laying out unbounded highlight elements.
+        if (this.hits.length + matches.length === SEARCH_RESULT_LIMIT) {
+          this.truncated = true;
+          break;
         }
-        const mark = document.createElement('mark');
-        mark.className = 'omv-search-hit';
-        mark.textContent = value.slice(start, end);
-        this.hits.push(mark);
-        frag.appendChild(mark);
-        last = end;
+        matches.push({
+          start: match.index ?? 0,
+          end: (match.index ?? 0) + match[0].length,
+          hit: { marks: [] }
+        });
       }
-      if (last < value.length) {
-        frag.appendChild(document.createTextNode(value.slice(last)));
+      if (!matches.length) {
+        if (this.truncated) break;
+        continue;
       }
-      textNode.parentNode?.replaceChild(frag, textNode);
+      for (const match of matches) this.hits.push(match.hit);
+
+      let offset = 0;
+      let matchIndex = 0;
+      for (const textNode of run.nodes) {
+        const value = textNode.data;
+        const endOffset = offset + value.length;
+        while (matches[matchIndex] && matches[matchIndex]!.end <= offset) matchIndex += 1;
+        if (!matches[matchIndex]) break;
+        if (matches[matchIndex]!.start >= endOffset) {
+          offset = endOffset;
+          continue;
+        }
+
+        const fragment = document.createDocumentFragment();
+        let last = 0;
+        for (let index = matchIndex; index < matches.length; index += 1) {
+          const match = matches[index]!;
+          if (match.start >= endOffset) break;
+          const start = Math.max(0, match.start - offset);
+          const end = Math.min(value.length, match.end - offset);
+          if (start > last) fragment.append(document.createTextNode(value.slice(last, start)));
+          const mark = document.createElement('mark');
+          mark.className = 'omv-search-hit';
+          mark.textContent = value.slice(start, end);
+          match.hit.marks.push(mark);
+          fragment.append(mark);
+          last = end;
+        }
+        if (last < value.length) fragment.append(document.createTextNode(value.slice(last)));
+        textNode.replaceWith(fragment);
+        offset = endOffset;
+      }
+      if (this.truncated) break;
     }
 
-    if (this.hits.length > 0) {
-      this.index = 0;
-      this.focusCurrent();
+    if (this.hits.length) {
+      this.index = options.preserveIndex
+        ? Math.min(Math.max(0, previousIndex), this.hits.length - 1)
+        : 0;
+      this.activateCurrent(options.reveal !== false);
     }
-    this.onCount(this.hits.length, this.index);
+    this.onCount(this.hits.length, this.index, this.truncated);
   }
 
   next(): void {
-    if (this.hits.length === 0) return;
-    this.index = (this.index + 1) % this.hits.length;
-    this.focusCurrent();
-    this.onCount(this.hits.length, this.index);
+    this.move(1);
   }
 
   prev(): void {
-    if (this.hits.length === 0) return;
-    this.index = (this.index - 1 + this.hits.length) % this.hits.length;
-    this.focusCurrent();
-    this.onCount(this.hits.length, this.index);
+    this.move(-1);
   }
 
-  private focusCurrent(): void {
-    for (const [i, el] of this.hits.entries()) {
-      if (i === this.index) {
-        el.setAttribute('aria-current', 'true');
-        el.scrollIntoView({ block: 'center', inline: 'nearest' });
-      } else {
-        el.removeAttribute('aria-current');
+  private move(direction: number): void {
+    if (!this.hits.length) return;
+    for (const mark of this.hits[this.index]?.marks ?? []) mark.removeAttribute('aria-current');
+    this.index = (this.index + direction + this.hits.length) % this.hits.length;
+    this.activateCurrent(true);
+    this.onCount(this.hits.length, this.index, this.truncated);
+  }
+
+  private activateCurrent(reveal: boolean): void {
+    const hit = this.hits[this.index];
+    for (const mark of hit?.marks ?? []) mark.setAttribute('aria-current', 'true');
+    if (reveal) hit?.marks[0]?.scrollIntoView({ block: 'center', inline: 'nearest' });
+  }
+
+  private removeHighlights(): void {
+    const parents = new Set<Node>();
+    for (const hit of this.hits) {
+      for (const mark of hit.marks) {
+        const parent = mark.parentNode;
+        if (!parent) continue;
+        mark.replaceWith(...Array.from(mark.childNodes));
+        parents.add(parent);
       }
     }
+    for (const parent of parents) parent.normalize();
+    this.hits = [];
+    this.index = -1;
+    this.truncated = false;
+  }
+
+  private *collectTextRuns(): Generator<TextRun> {
+    let current: TextRun | undefined;
+    const walker = document.createTreeWalker(
+      this.container,
+      NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT,
+      {
+        acceptNode(node) {
+          if (node instanceof Element && node.matches(EXCLUDED)) return NodeFilter.FILTER_REJECT;
+          // SVG text needs SVG elements, not HTML mark wrappers.
+          if (node instanceof Element && node.namespaceURI !== 'http://www.w3.org/1999/xhtml') return NodeFilter.FILTER_REJECT;
+          return NodeFilter.FILTER_ACCEPT;
+        }
+      }
+    );
+    let node: Node | null;
+    while ((node = walker.nextNode())) {
+      if (node instanceof Element) {
+        if (node.matches(BLOCKS) || node.tagName === 'BR') {
+          if (current) yield current;
+          current = undefined;
+        }
+        continue;
+      }
+      if (!(node instanceof Text) || !node.data) continue;
+      const root = node.parentElement?.closest(BLOCKS) ?? this.container;
+      if (!current || current.root !== root) {
+        if (current) yield current;
+        current = { root, nodes: [], text: '' };
+      }
+      current.nodes.push(node);
+      current.text += node.data;
+    }
+    if (current) yield current;
   }
 }
 

@@ -8,6 +8,7 @@ const projectRoot = process.cwd();
 const common = {
   bundle: true,
   sourcemap: true,
+  minify: !watch,
   target: 'es2022',
   platform: 'node',
   format: 'cjs',
@@ -33,6 +34,7 @@ async function run() {
 
   const webConfig = {
     bundle: true,
+    minify: !watch,
     sourcemap: true,
     target: 'es2022',
     platform: 'browser',

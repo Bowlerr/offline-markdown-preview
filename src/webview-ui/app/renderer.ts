@@ -21,7 +21,7 @@ import {
   OMV_REMOTE_SRC_ATTR
 } from '../../previewImageMetadata';
 import { markRemoteImagePreviewHidden } from './remoteImageAttrs';
-import { getEffectiveMermaidThemeKind } from './themeUtils';
+import { getEffectiveMermaidThemeKind, getThemeKindFromBodyClass } from './themeUtils';
 
 export interface RendererBridge {
   onOpenLink(
@@ -196,6 +196,7 @@ export class PreviewRenderer {
       anchor.className = 'omv-heading-anchor';
       anchor.textContent = '#';
       anchor.title = 'Copy heading link';
+      anchor.setAttribute('aria-label', `Copy link to ${heading.textContent?.trim() || 'heading'}`);
       anchor.addEventListener('click', (event) => {
         event.preventDefault();
         this.bridge.onCopyHeadingLink(id);
@@ -209,9 +210,22 @@ export class PreviewRenderer {
       `img[${OMV_LOCAL_SRC_ATTR}]`
     );
     for (const img of imgs) {
-      img.addEventListener('click', () => {
+      // Linked images already expose their link through the keyboard; don't give them a second action.
+      if (img.closest('a[href]')) continue;
+      img.tabIndex = 0;
+      img.setAttribute('role', 'button');
+      img.setAttribute('data-omv-image-action', 'true');
+      img.setAttribute('aria-label', `Open image${img.alt ? `: ${img.alt}` : ''}`);
+      const openImage = () => {
         const localSrc = img.getAttribute(OMV_LOCAL_SRC_ATTR);
         if (localSrc) this.bridge.onOpenImage(localSrc);
+      };
+      img.addEventListener('click', openImage);
+      img.addEventListener('keydown', (event) => {
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault();
+          openImage();
+        }
       });
     }
 
@@ -482,7 +496,7 @@ function buildMermaidThemeConfig(themeRoot: HTMLElement): {
   const editorBg = bg;
   const themeKind = getEffectiveMermaidThemeKind(
     bg,
-    document.body.dataset.vscodeThemeKind ?? 'light'
+    getThemeKindFromBodyClass(document.body.className)
   );
 
   probe.root.remove();
@@ -499,7 +513,8 @@ function buildMermaidThemeConfig(themeRoot: HTMLElement): {
     fontSize: `${Math.max(13, Math.round(bodyFontSize))}px`,
     background: editorBg,
     textColor: fg,
-    lineColor: strongBorder,
+    // Connectors carry diagram meaning and need text-level contrast, not divider colors.
+    lineColor: fg,
     // Keep Mermaid's generic edge/label backgrounds transparent; flowchart edge labels are styled
     // separately via scoped CSS so sequence/class labels don't get unintended fills.
     edgeLabelBackground: transparent,
@@ -749,7 +764,22 @@ function applyContentTheme(themeRoot: HTMLElement): void {
 }
 
 function collectThemeVariables(themeRoot: HTMLElement): Record<string, string> {
-  const variables: Record<string, string> = {};
+  const rootStyle = getComputedStyle(themeRoot);
+  const bodyStyle = getComputedStyle(document.body);
+  // Standalone exports have no VS Code theme variables. Preserve the palette
+  // behind translucent diagram/code surfaces as well as their captured colors.
+  const variables: Record<string, string> = {
+    '--omv-bg': firstOpaqueColor(
+      rootStyle.backgroundColor,
+      bodyStyle.backgroundColor,
+      'rgb(30, 30, 30)'
+    ),
+    '--omv-fg': firstDefinedColor(
+      rootStyle.color,
+      bodyStyle.color,
+      'rgb(204, 204, 204)'
+    )
+  };
   for (const name of computedThemeVarNames) {
     const value = themeRoot.style.getPropertyValue(name).trim();
     if (value) {
@@ -867,12 +897,12 @@ function firstDefinedColor(...values: string[]): string {
 function getReadableTextColorForHex(hex: string): string {
   const rgb = parseHexColor(hex);
   if (!rgb) return '#111111';
-  const [r, g, b] = rgb.map((v) => v / 255);
-  const linear = [r, g, b].map((c) =>
-    c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4
-  );
+  const linear = (value: number) => {
+    const channel = value / 255;
+    return channel <= 0.03928 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4;
+  };
   const luminance =
-    0.2126 * linear[0] + 0.7152 * linear[1] + 0.0722 * linear[2];
+    0.2126 * linear(rgb[0]) + 0.7152 * linear(rgb[1]) + 0.0722 * linear(rgb[2]);
   return luminance > 0.45 ? '#111111' : '#f5f7fa';
 }
 
@@ -1109,8 +1139,8 @@ function normalizeRequirementDiagramSyntax(code: string): string {
 
   const lines = keyNormalized.split(/\r?\n/u).map((line) => {
     const match = /^(\s*)(id|text|name|docRef)\s*:\s*(.+?)\s*$/u.exec(line);
-    if (!match) return line;
-    const [, indent, key, rawValue] = match;
+    if (!match?.[3]) return line;
+    const [, indent = '', key = '', rawValue = ''] = match;
     const unquoted = rawValue.replace(/^"(.*)"$/u, '$1').trim();
     if (key === 'id') {
       const sanitized = unquoted.replace(/[^\w]/g, '');
@@ -1128,7 +1158,7 @@ function normalizeBlockBetaNodeLabels(code: string): string {
   const lines = code.split(/\r?\n/u).map((line) => {
     const match = /^(\s*)([A-Za-z_][\w-]*)\[(.+)\]\s*$/u.exec(line);
     if (!match) return line;
-    const [, indent, nodeId, rawLabel] = match;
+    const [, indent = '', nodeId = '', rawLabel = ''] = match;
     const label = rawLabel.replace(/^"(.*)"$/u, '$1').trim();
     return `${indent}${nodeId}|${label}|`;
   });
@@ -1216,7 +1246,7 @@ function createMermaidInteractiveViewer(svg: SVGSVGElement): HTMLElement {
   viewport.setAttribute('role', 'group');
   viewport.setAttribute(
     'aria-label',
-    'Mermaid diagram viewer. Drag to pan. Ctrl or Cmd + wheel to zoom.'
+    'Mermaid diagram viewer. Use arrow keys or pan buttons to move. Plus and minus zoom. F fits the diagram. Zero restores original size.'
   );
 
   const canvas = document.createElement('div');
@@ -1226,7 +1256,7 @@ function createMermaidInteractiveViewer(svg: SVGSVGElement): HTMLElement {
 
   const hint = document.createElement('span');
   hint.className = 'omv-mermaid-hint';
-  hint.textContent = 'Drag to pan · Ctrl/Cmd+Wheel to zoom';
+  hint.textContent = 'Drag or arrow keys to pan · Ctrl/Cmd+Wheel to zoom';
 
   const state = {
     scale: 1,
@@ -1297,6 +1327,13 @@ function createMermaidInteractiveViewer(svg: SVGSVGElement): HTMLElement {
     applyTransform();
   };
 
+  const pan = (horizontal: number, vertical: number) => {
+    state.tx -= horizontal * Math.max(40, viewport.clientWidth / 5);
+    state.ty -= vertical * Math.max(40, viewport.clientHeight / 5);
+    state.touched = true;
+    applyTransform();
+  };
+
   toolbar.append(
     button('−', 'Zoom out', () => zoomAt(1 / 1.2)),
     button('+', 'Zoom in', () => zoomAt(1.2)),
@@ -1304,7 +1341,11 @@ function createMermaidInteractiveViewer(svg: SVGSVGElement): HTMLElement {
       state.touched = true;
       fitToViewport();
     }),
-    button('100%', 'Reset to original size', setOneToOne),
+    button('100%', 'Reset diagram to 100% size', setOneToOne),
+    button('←', 'Pan left', () => pan(-1, 0)),
+    button('→', 'Pan right', () => pan(1, 0)),
+    button('↑', 'Pan up', () => pan(0, -1)),
+    button('↓', 'Pan down', () => pan(0, 1)),
     hint
   );
 
@@ -1353,7 +1394,12 @@ function createMermaidInteractiveViewer(svg: SVGSVGElement): HTMLElement {
   viewport.addEventListener('pointercancel', endDrag);
   viewport.addEventListener('dblclick', () => fitToViewport());
   viewport.addEventListener('keydown', (event) => {
-    if (event.key === '+' || event.key === '=') {
+    if (event.ctrlKey || event.metaKey || event.altKey) return;
+    if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(event.key)) {
+      event.preventDefault();
+      pan(event.key === 'ArrowLeft' ? -1 : event.key === 'ArrowRight' ? 1 : 0,
+        event.key === 'ArrowUp' ? -1 : event.key === 'ArrowDown' ? 1 : 0);
+    } else if (event.key === '+' || event.key === '=') {
       event.preventDefault();
       zoomAt(1.2);
     } else if (event.key === '-') {
@@ -1431,6 +1477,7 @@ function button(
   el.className = 'omv-mermaid-btn';
   el.textContent = label;
   el.title = title;
+  el.setAttribute('aria-label', title);
   el.addEventListener('click', onClick);
   return el;
 }
@@ -1572,7 +1619,7 @@ function readAlignment(
   }
   const style = cell.getAttribute('style') ?? '';
   const match = /text-align\s*:\s*(left|center|right)/i.exec(style);
-  return match
+  return match?.[1]
     ? (match[1].toLowerCase() as 'left' | 'center' | 'right')
     : undefined;
 }

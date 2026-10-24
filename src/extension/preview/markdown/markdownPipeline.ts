@@ -219,7 +219,7 @@ function setBlockedRemoteImageMetadata(
   }
 
   if (!getHtmlAttribute(attributes, OMV_REMOTE_SRC_ATTR)?.value) {
-    setHtmlAttribute(attributes, OMV_REMOTE_SRC_ATTR, blockedCandidates[0].url);
+    setHtmlAttribute(attributes, OMV_REMOTE_SRC_ATTR, blockedCandidates[0]!.url);
   }
   if (!getHtmlAttribute(attributes, OMV_IMAGE_BLOCKED_ATTR)?.value) {
     setHtmlAttribute(
@@ -397,6 +397,19 @@ function rewriteRawHtmlImages(
   });
 }
 
+function stripAuthoredImageMetadata(html: string): string {
+  return mapHtmlImgTags(html, (tag) => {
+    const parsed = parseHtmlImgTag(tag);
+    if (!parsed) return tag;
+    const attributes = parsed.attributes.filter(
+      ({ name }) => !name.toLowerCase().startsWith('data-omv-')
+    );
+    return attributes.length === parsed.attributes.length
+      ? tag
+      : serializeHtmlImgTag(attributes, parsed.selfClosing);
+  });
+}
+
 function isEscaped(source: string, index: number): boolean {
   let slashCount = 0;
   for (let i = index - 1; i >= 0 && source.charCodeAt(i) === 0x5c; i -= 1) {
@@ -538,12 +551,12 @@ function installMathRules(md: MarkdownIt): void {
   });
 
   md.renderer.rules.math_inline = (tokens, idx) => {
-    const token = tokens[idx];
+    const token = tokens[idx]!;
     return renderMathPlaceholder(token.content, 'omv-math-inline');
   };
 
   md.renderer.rules.math_block = (tokens, idx) => {
-    const token = tokens[idx];
+    const token = tokens[idx]!;
     const lineAttrs = sourceLineAttrString(token);
     return renderMathPlaceholder(token.content, 'omv-math-block', lineAttrs);
   };
@@ -572,7 +585,7 @@ function createMarkdownIt(options: MarkdownRenderOptions): MarkdownIt {
     const env = state.env as RenderEnvironment;
     env.toc = [];
     for (let i = 0; i < state.tokens.length; i += 1) {
-      const token = state.tokens[i];
+      const token = state.tokens[i]!;
       if (token.type !== 'heading_open') continue;
       const inline = state.tokens[i + 1];
       if (!inline || inline.type !== 'inline') continue;
@@ -590,7 +603,7 @@ function createMarkdownIt(options: MarkdownRenderOptions): MarkdownIt {
 
   const fence = md.renderer.rules.fence;
   md.renderer.rules.fence = (tokens, idx, opts, env, self) => {
-    const token = tokens[idx];
+    const token = tokens[idx]!;
     const info = (token.info || '').trim().split(/\s+/)[0] ?? '';
     const lineAttrs = sourceLineAttrString(token);
     if (info === 'mermaid') {
@@ -607,15 +620,22 @@ function createMarkdownIt(options: MarkdownRenderOptions): MarkdownIt {
 
   const codeBlock = md.renderer.rules.code_block;
   md.renderer.rules.code_block = (tokens, idx, opts, env, self) => {
-    const token = tokens[idx];
+    const token = tokens[idx]!;
     const lineAttrs = sourceLineAttrString(token);
     const html = codeBlock ? codeBlock(tokens, idx, opts, env, self) : self.renderToken(tokens, idx, opts);
     return lineAttrs ? html.replace(/<pre\b/i, `<pre${lineAttrs}`) : html;
   };
 
+  // Raw HTML is authored input. Only the image pipeline may attach metadata
+  // that later authorizes local file reads or image actions in the extension.
+  for (const ruleName of ['html_inline', 'html_block'] as const) {
+    md.renderer.rules[ruleName] = (tokens, idx) =>
+      stripAuthoredImageMetadata(tokens[idx]!.content);
+  }
+
   const imageRule = md.renderer.rules.image;
   md.renderer.rules.image = (tokens, idx, opts, env, self) => {
-    const token = tokens[idx];
+    const token = tokens[idx]!;
     const src = token.attrGet('src') ?? '';
     const override = options.remoteImageOverrides?.get(src);
     const resolved = resolveImageUri(options.sourceUri, src);
@@ -656,7 +676,7 @@ function createMarkdownIt(options: MarkdownRenderOptions): MarkdownIt {
 
   const linkOpen = md.renderer.rules.link_open;
   md.renderer.rules.link_open = (tokens, idx, opts, env, self) => {
-    const token = tokens[idx];
+    const token = tokens[idx]!;
     token.attrSet('data-omv-link', '1');
     token.attrSet('rel', 'noopener noreferrer nofollow');
     return linkOpen ? linkOpen(tokens, idx, opts, env, self) : self.renderToken(tokens, idx, opts);
@@ -666,11 +686,11 @@ function createMarkdownIt(options: MarkdownRenderOptions): MarkdownIt {
   for (const ruleName of ['th_open', 'td_open'] as const) {
     const original = tableCellOpen(ruleName);
     md.renderer.rules[ruleName] = (tokens, idx, opts, env, self) => {
-      const token = tokens[idx];
+      const token = tokens[idx]!;
       const style = token.attrGet('style') ?? '';
       const match = /text-align\s*:\s*(left|center|right)/i.exec(style);
       if (match) {
-        const align = match[1].toLowerCase();
+        const align = match[1]!.toLowerCase();
         token.attrSet('data-align', align);
         token.attrSet('align', align);
         const existingClass = token.attrGet('class');

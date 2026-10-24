@@ -48,8 +48,12 @@ const webviewSchema = z.discriminatedUnion('type', [
   z.object({
     type: z.literal('htmlExportSnapshot'),
     requestId: z.number().int().nonnegative(),
+    documentUri: z.string().min(1),
+    version: z.number().int().nonnegative(),
+    renderRequestId: z.number().int().nonnegative(),
+    error: z.string().optional(),
     html: z.string(),
-    themeVariables: z.record(z.string()).optional()
+    themeVariables: z.record(z.string(), z.string()).optional()
   })
 ]);
 
@@ -69,7 +73,7 @@ const extSchema = z.discriminatedUnion('type', [
       })
     ),
     frontmatter: z
-      .object({ raw: z.string(), data: z.record(z.unknown()) })
+      .object({ raw: z.string(), data: z.record(z.string(), z.unknown()) })
       .optional(),
     editorLineCount: z.number().int().min(1),
     settings: z.object({
@@ -124,7 +128,10 @@ const extSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('exportPdf') }),
   z.object({
     type: z.literal('requestHtmlExportSnapshot'),
-    requestId: z.number().int().nonnegative()
+    requestId: z.number().int().nonnegative(),
+    documentUri: z.string().min(1),
+    version: z.number().int().nonnegative(),
+    renderRequestId: z.number().int().nonnegative()
   }),
   z.object({
     type: z.literal('updateCustomCss'),

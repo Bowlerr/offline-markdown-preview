@@ -45,7 +45,7 @@ A quick tour of key workflows (all offline, inside VS Code):
 - **Secure webview defaults**: strict CSP + HTML sanitization (`DOMPurify`) enabled by default.
 - **Markdown preview panel** with live updates and editor/preview scroll sync.
 - **Bundled rendering stack**: Mermaid diagrams, KaTeX math, Prism syntax highlighting.
-- **Navigation tools**: Markdown outline TreeView, heading quick pick, copy heading links.
+- **Navigation tools**: in-preview Contents list, heading quick pick, copy heading links.
 - **Export tools**: HTML export and PDF export from the preview workflow.
 - **Safety controls**: external-link confirmation, image size limits, sanitization toggle (with explicit unsafe wording).
 
@@ -54,7 +54,7 @@ A quick tour of key workflows (all offline, inside VS Code):
 1. Open a Markdown file (`.md`) in VS Code.
 2. Preview opens automatically by default (`offlineMarkdownViewer.preview.autoOpen = true`) when a Markdown editor becomes active.
 3. You can also run **Offline Markdown Preview: Open Preview** (or **Open Preview in Current Group**) manually.
-4. Use the outline view and heading commands to navigate larger documents.
+4. Use the preview's Contents list and heading commands to navigate larger documents.
 5. Export when needed with **Export HTML** or **Export PDF**.
 
 Tip: use the editor title action to open preview while editing.
@@ -69,6 +69,8 @@ Tip: use the editor title action to open preview while editing.
 - **Strict CSP** includes `connect-src 'none'`.
 - **Sanitization is on by default** (`offlineMarkdownViewer.sanitizeHtml = true`).
 - **Export writes files only on explicit user action** (HTML/PDF commands).
+- **Exports preserve offline defaults**: standalone HTML/PDF rendering blocks remote images unless you enabled them, and exported documents cannot run scripts.
+- **Exports use the completed preview**: a document change while capturing the preview, or a rendering timeout, cancels the export with a clear message instead of exporting incomplete content.
 
 ## Settings
 
@@ -83,7 +85,7 @@ These VS Code settings control rendering, safety, and performance:
 - `offlineMarkdownViewer.preview.allowRemoteImages` (default: `false`): allow loading remote `http(s)` images in preview. When off, remote images are shown as a download action and cached locally for preview use.
 - `offlineMarkdownViewer.preview.useMarkdownPreviewGithubStyling` (default: `false`): load CSS from the installed `bierner.markdown-preview-github-styles` extension before any configured custom CSS, while respecting that extension's `colorTheme`, `lightTheme`, and `darkTheme` settings.
 - `offlineMarkdownViewer.preview.maxImageMB` (default: `24`): maximum local image size loaded into preview.
-- `offlineMarkdownViewer.export.embedImages` (default: `false`): embed local images as data URIs for HTML export (privacy warning shown).
+- `offlineMarkdownViewer.export.embedImages` (default: `false`): embed local images as data URIs for HTML/PDF export (privacy warning shown).
 - `offlineMarkdownViewer.performance.debounceMs` (default: `120`): debounce delay for live preview updates.
 - `offlineMarkdownViewer.preview.globalCustomCssPath` (default: `""`): absolute path to a user-level `.css` file appended to every preview.
 - `offlineMarkdownViewer.preview.customCssPath` (default: `""`): workspace-relative `.css` file appended after the global stylesheet. Set this in workspace or folder settings to override the global baseline for a repo.
@@ -120,7 +122,7 @@ For a full setup guide, example CSS, and GitHub-style walkthrough, see [docs/cus
 | `Offline Markdown Preview: Show Remote Image Cache Usage` | Show current remote-image cache size/file counts        |
 | `Offline Markdown Preview: Clear Remote Image Cache`      | Delete cached remote images used by preview             |
 | `Offline Markdown Preview: Toggle Scroll Sync`            | Enable/disable editor <-> preview scroll sync           |
-| `Offline Markdown Preview: Copy Heading Link`             | Copy a heading anchor link (outline context)            |
+| `Offline Markdown Preview: Copy Heading Link`             | Choose a heading and copy its anchor link               |
 | `Offline Markdown Preview: Quick Pick Heading`            | Jump to a heading via quick pick                        |
 
 ## Remote Image Cache
@@ -141,14 +143,21 @@ Preview-local shortcuts (when focus is inside the preview webview):
 
 - `Cmd/Ctrl+F`: open/focus preview search
 - `Enter` (in search box): next match
+- `Shift+Enter` (in search box): previous match
+- `Escape`: hide search and return focus to its toggle
+- Arrow keys (on a focused diagram): pan. The diagram toolbar also provides pan buttons.
+- `Enter` or `Space` (on a focused local image): open the image
+
+Search includes fenced code and text split across inline formatting. Broad queries highlight and navigate the first 1,000 matches to keep large documents responsive; the status shows when this limit is reached, so you can refine the query. The preview keeps your reading position during live edits, and the contents list retains keyboard focus when you select a heading.
 
 ## Notes, Limits, and Safety
 
 - **Sanitization can be disabled** for advanced cases, but this is unsafe for untrusted Markdown/HTML content.
 - **Paths outside the workspace may be blocked** for preview safety when resolving local resources.
 - **Large images are capped** by `offlineMarkdownViewer.preview.maxImageMB` to avoid excessive memory usage in preview.
+- **Image downloads are bounded** by the same size limit and a 30-second timeout. Image actions allow files within the document's workspace, its containing directory when opened outside a workspace, or the extension's image cache. Files outside these roots, including escaping symlinks, cannot be opened or embedded.
 - **Preview styling supports multiple layers**: `offlineMarkdownViewer.preview.useMarkdownPreviewGithubStyling` imports CSS from the installed `bierner.markdown-preview-github-styles` extension, `offlineMarkdownViewer.preview.globalCustomCssPath` accepts an explicitly configured absolute `.css` file from user settings, and `offlineMarkdownViewer.preview.customCssPath` accepts only workspace- or folder-local `.css` files. Workspace or folder CSS is applied last and takes precedence.
-- **PDF export behavior depends on the VS Code/webview print route** and may vary slightly by platform.
+- **PDF export requires a local Chrome, Edge, or Chromium installation**. It renders locally, waits for images/fonts, and reports actionable failures in the Offline Markdown Preview output channel. Layout may vary slightly by browser/platform.
 
 ## Troubleshooting
 

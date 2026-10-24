@@ -10,7 +10,8 @@ test/**
 test-results/**
 node_modules/**/.cache/**
 *.vsix
-*.map
+**/*.map
+**/*.d.ts
 package-lock.json
 tsconfig.json
 vitest.config.ts
@@ -19,5 +20,10 @@ yarn.lock
 .eslintrc.cjs
 .prettierrc
 .DS_Store
+images/*.gif
+docs/RELEASE-PLAN.md
+.nvmrc
+.gitignore
+**/.gitkeep
 vitest.config.*
 playwright.config.*

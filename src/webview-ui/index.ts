@@ -43,10 +43,7 @@ const CUSTOM_CSS_STYLE_SELECTOR = 'style[data-omv-custom-css="true"]';
 const vscode = acquireVsCodeApi();
 blockRemoteNetworking();
 
-const root = document.getElementById('app');
-if (!root) {
-  throw new Error('Missing app root');
-}
+const root = requireElement<HTMLElement>('#app');
 
 root.innerHTML = `
   <div class="omv-chrome">
@@ -55,48 +52,39 @@ root.innerHTML = `
       <button type="button" class="omv-chrome-btn" data-ui-toggle="search" aria-controls="omv-search-toolbar" aria-expanded="true" aria-pressed="true">Search</button>
       <button type="button" class="omv-chrome-btn" data-chrome-action="export">Export</button>
     </div>
-    <span class="omv-meta" aria-live="polite"></span>
+    <span class="omv-meta" role="status" aria-live="polite" aria-atomic="true"></span>
   </div>
   <div class="omv-toolbar" id="omv-search-toolbar">
     <input type="search" placeholder="Search preview" aria-label="Search preview" />
-    <button type="button" data-action="prev">Prev</button>
-    <button type="button" data-action="next">Next</button>
-    <button type="button" data-action="clear">Clear</button>
+    <button type="button" data-action="prev" aria-label="Previous match" disabled>Prev</button>
+    <button type="button" data-action="next" aria-label="Next match" disabled>Next</button>
+    <button type="button" data-action="clear" aria-label="Clear search">Clear</button>
   </div>
   <div class="omv-main" id="omv-main">
     <aside class="omv-toc" id="omv-toc" aria-label="Table of contents"></aside>
-    <div class="omv-preview-scroll">
+    <main class="omv-preview-scroll" tabindex="0" aria-label="Markdown preview">
       <article class="omv-preview"></article>
-    </div>
+    </main>
   </div>
 `;
 
-const searchInput = root.querySelector<HTMLInputElement>(
-  'input[type="search"]'
-);
-const meta = root.querySelector<HTMLElement>('.omv-meta');
-const tocEl = root.querySelector<HTMLElement>('.omv-toc');
-const article = root.querySelector<HTMLElement>('.omv-preview');
-const scroller = root.querySelector<HTMLElement>('.omv-preview-scroll');
-const searchToolbar = root.querySelector<HTMLElement>('#omv-search-toolbar');
-const mainLayout = root.querySelector<HTMLElement>('#omv-main');
-
-if (
-  !searchInput ||
-  !meta ||
-  !tocEl ||
-  !article ||
-  !scroller ||
-  !searchToolbar ||
-  !mainLayout
-) {
-  throw new Error('Webview UI bootstrap failed');
-}
+const searchInput = requireElement<HTMLInputElement>('input[type="search"]', root);
+const meta = requireElement<HTMLElement>('.omv-meta', root);
+const tocEl = requireElement<HTMLElement>('.omv-toc', root);
+const article = requireElement<HTMLElement>('.omv-preview', root);
+const scroller = requireElement<HTMLElement>('.omv-preview-scroll', root);
+const searchToolbar = requireElement<HTMLElement>('#omv-search-toolbar', root);
+const mainLayout = requireElement<HTMLElement>('#omv-main', root);
 
 const state = (vscode.getState() as ViewState | undefined) ?? {};
 const boot = getBootData();
 
 let lastRender: RenderPayload | undefined;
+let lastCompletedRender: RenderPayload | undefined;
+let pendingRender: RenderPayload | undefined;
+let renderWork: Promise<void> | undefined;
+let searchTimer: ReturnType<typeof setTimeout> | undefined;
+let readingInteractionRevision = 0;
 let searchUiVisible =
   state.searchUiVisible ?? boot.initialUiState?.searchUiVisible ?? true;
 let tocVisible = state.tocVisible ?? boot.initialUiState?.tocVisible ?? true;
@@ -107,7 +95,7 @@ const renderer = new PreviewRenderer(article, {
   },
   onHeadingSelect(id) {
     renderer.setActiveHeading(id);
-    toc.render(renderer.getToc(), id);
+    toc.setActive(id);
     scrollSync.scrollHeadingIntoView(id);
     vscode.postMessage({ type: 'headingSelected', headingId: id });
     persistState();
@@ -125,8 +113,15 @@ const renderer = new PreviewRenderer(article, {
 
 const search = new PreviewSearch(
   renderer.getContentElement(),
-  (count, index) => {
-    meta.textContent = count === 0 ? '' : `${index + 1}/${count}`;
+  (count, index, truncated) => {
+    meta.textContent = count === 0
+      ? (searchInput.value.trim() ? 'No matches' : '')
+      : truncated
+        ? `${index + 1} of ${count.toLocaleString('en-US')}+ matches (first ${count.toLocaleString('en-US')} shown)`
+        : `${index + 1} of ${count} matches`;
+    for (const button of root.querySelectorAll<HTMLButtonElement>('[data-action="prev"], [data-action="next"]')) {
+      button.disabled = count === 0;
+    }
   }
 );
 
@@ -143,26 +138,31 @@ const scrollSync = new ScrollSyncController(
 
 const toc = new TocView(tocEl, (item) => {
   renderer.setActiveHeading(item.id);
-  toc.render(renderer.getToc(), item.id);
+  toc.setActive(item.id);
   scrollSync.scrollHeadingIntoView(item.id);
   vscode.postMessage({ type: 'headingSelected', headingId: item.id });
   persistState();
 });
 
 initTheme(() => {
-  if (lastRender) {
-    void renderer.refreshTheme(lastRender.settings);
-  }
+  if (lastRender) void queueRender(lastRender);
 });
+
+for (const event of ['wheel', 'pointerdown', 'touchstart', 'keydown']) {
+  scroller.addEventListener(event, () => { readingInteractionRevision += 1; }, { passive: true });
+}
 
 searchInput.value = state.searchQuery ?? '';
 applyUiVisibility();
-searchInput.addEventListener('input', () => {
-  const query = searchInput.value;
-  search.query(query);
-  vscode.postMessage({ type: 'search', action: 'query', query });
-  persistState();
+searchInput.addEventListener('input', (event) => {
+  if ((event as InputEvent).isComposing) {
+    if (searchTimer) clearTimeout(searchTimer);
+    searchTimer = undefined;
+    return;
+  }
+  scheduleSearch();
 });
+searchInput.addEventListener('compositionend', scheduleSearch);
 
 for (const btn of root.querySelectorAll<HTMLButtonElement>(
   'button[data-ui-toggle]'
@@ -194,9 +194,11 @@ for (const btn of root.querySelectorAll<HTMLButtonElement>(
 }
 
 searchInput.addEventListener('keydown', (event) => {
-  if (event.key === 'Enter' && !event.shiftKey) {
+  if (event.key === 'Enter' && !event.isComposing) {
     event.preventDefault();
-    search.next();
+    flushSearch();
+    if (event.shiftKey) search.prev();
+    else search.next();
   }
 });
 
@@ -205,11 +207,13 @@ for (const btn of root.querySelectorAll<HTMLButtonElement>(
 )) {
   btn.addEventListener('click', () => {
     const action = btn.dataset.action;
+    flushSearch();
     if (action === 'next') search.next();
     if (action === 'prev') search.prev();
     if (action === 'clear') {
       searchInput.value = '';
       search.clear();
+      searchInput.focus();
     }
     persistState();
   });
@@ -227,6 +231,14 @@ window.addEventListener('message', (event: MessageEvent<unknown>) => {
 });
 
 window.addEventListener('keydown', (event) => {
+  if (event.isComposing) return;
+  if (event.key === 'Escape' && searchUiVisible) {
+    event.preventDefault();
+    setSearchUiVisible(false, { persistPreference: true });
+    root.querySelector<HTMLButtonElement>('[data-ui-toggle="search"]')?.focus();
+    persistState();
+    return;
+  }
   if (
     (event.metaKey || event.ctrlKey) &&
     !event.altKey &&
@@ -250,26 +262,15 @@ async function handleMessage(
   switch (message.type) {
     case 'updateCustomCss': {
       applyCustomCss(message.cssTexts);
-      if (lastRender) {
-        await renderer.refreshTheme(lastRender.settings);
-      }
+      if (lastRender) await queueRender(lastRender);
       break;
     }
     case 'render': {
-      lastRender = message;
-      await renderer.render(message);
-      toc.render(message.toc, state.activeHeadingId);
-      if (searchInput.value.trim()) {
-        search.query(searchInput.value);
-      }
-      if (state.activeHeadingId) {
-        scrollSync.scrollHeadingIntoView(state.activeHeadingId);
-      }
-      state.lastRenderRequestId = message.requestId;
-      persistState();
+      await queueRender(message);
       break;
     }
     case 'editorScroll': {
+      readingInteractionRevision += 1;
       scrollSync.applyEditorScroll(message.percent, message.line);
       break;
     }
@@ -278,6 +279,7 @@ async function handleMessage(
       break;
     }
     case 'searchCommand': {
+      flushSearch();
       if (message.action === 'open') {
         setSearchUiVisible(true, {
           focus: true,
@@ -309,16 +311,102 @@ async function handleMessage(
       break;
     }
     case 'requestHtmlExportSnapshot': {
+      await waitForRender();
+      const completed = lastCompletedRender;
+      if (!completed || completed.requestId !== message.renderRequestId || completed.documentUri !== message.documentUri || completed.version !== message.version) {
+        vscode.postMessage({
+          type: 'htmlExportSnapshot',
+          requestId: message.requestId,
+          documentUri: completed?.documentUri ?? message.documentUri,
+          version: completed?.version ?? message.version,
+          renderRequestId: completed?.requestId ?? message.renderRequestId,
+          html: '',
+          error: 'The document changed before the preview finished rendering. Retry the export.'
+        });
+        break;
+      }
       const snapshot = buildRenderedHtmlExportSnapshot();
       vscode.postMessage({
         type: 'htmlExportSnapshot',
         requestId: message.requestId,
+        documentUri: completed.documentUri,
+        version: completed.version,
+        renderRequestId: completed.requestId,
         html: snapshot.html,
         themeVariables: snapshot.themeVariables
       });
       break;
     }
   }
+}
+
+function scheduleSearch(): void {
+  if (searchTimer) clearTimeout(searchTimer);
+  searchTimer = setTimeout(runSearch, 80);
+}
+
+function runSearch(): void {
+  if (searchTimer) clearTimeout(searchTimer);
+  searchTimer = undefined;
+  const query = searchInput.value;
+  search.query(query);
+  vscode.postMessage({ type: 'search', action: 'query', query });
+  persistState();
+}
+
+function flushSearch(): void {
+  if (searchTimer) runSearch();
+}
+
+function queueRender(message: RenderPayload): Promise<void> {
+  lastRender = message;
+  pendingRender = message;
+  if (!renderWork) {
+    renderWork = renderPending().finally(() => { renderWork = undefined; });
+  }
+  return renderWork;
+}
+
+async function waitForRender(): Promise<void> {
+  while (renderWork) await renderWork;
+}
+
+async function renderPending(): Promise<void> {
+  while (pendingRender) {
+    const message = pendingRender;
+    pendingRender = undefined;
+    const sameDocument = lastCompletedRender?.documentUri === message.documentUri;
+    const previousScrollTop = scroller.scrollTop;
+    const interactionRevision = readingInteractionRevision;
+    if (!sameDocument || !message.toc.some((item) => item.id === renderer.getActiveHeadingId())) {
+      renderer.setActiveHeading(undefined);
+    }
+    // Mark snapshots unavailable until all math/diagram enhancement has finished.
+    lastCompletedRender = undefined;
+    try {
+      await renderer.render(message);
+      lastCompletedRender = message;
+      if (interactionRevision === readingInteractionRevision) {
+        scroller.scrollTop = sameDocument ? previousScrollTop : 0;
+      }
+      // A newer edit has already arrived: finish only the latest requested document.
+      if (pendingRender) continue;
+      toc.render(message.toc, renderer.getActiveHeadingId());
+      if (searchTimer) clearTimeout(searchTimer);
+      searchTimer = undefined;
+      search.query(searchInput.value, { reveal: false, preserveIndex: sameDocument });
+      state.lastRenderRequestId = message.requestId;
+      persistState();
+    } catch {
+      meta.textContent = 'The preview could not finish rendering. Edit the document to retry.';
+    }
+  }
+}
+
+function requireElement<T extends Element>(selector: string, parent: ParentNode = document): T {
+  const element = parent.querySelector<T>(selector);
+  if (!element) throw new Error(`Missing preview element: ${selector}`);
+  return element;
 }
 
 function applyCustomCss(cssTexts: string[]): void {
@@ -451,6 +539,14 @@ function buildRenderedHtmlExportSnapshot(): {
 
   for (const block of clone.querySelectorAll<HTMLElement>('.omv-remote-image')) {
     block.remove();
+  }
+
+  for (const anchor of clone.querySelectorAll('.omv-heading-anchor')) anchor.remove();
+  for (const img of clone.querySelectorAll('[data-omv-image-action]')) {
+    img.removeAttribute('data-omv-image-action');
+    img.removeAttribute('role');
+    img.removeAttribute('tabindex');
+    img.removeAttribute('aria-label');
   }
 
   for (const img of clone.querySelectorAll<HTMLImageElement>(

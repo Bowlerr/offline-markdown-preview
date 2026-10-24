@@ -64,12 +64,12 @@ function isDarkColor(value: string): boolean {
     return false;
   }
 
-  const [r, g, b] = rgb.map((channel) => channel / 255);
-  const linear = [r, g, b].map((channel) =>
-    channel <= 0.03928 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4
-  );
+  const linear = (value: number) => {
+    const channel = value / 255;
+    return channel <= 0.03928 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4;
+  };
   const luminance =
-    0.2126 * linear[0] + 0.7152 * linear[1] + 0.0722 * linear[2];
+    0.2126 * linear(rgb[0]) + 0.7152 * linear(rgb[1]) + 0.0722 * linear(rgb[2]);
   return luminance < 0.45;
 }
 
@@ -82,7 +82,7 @@ function parseCssColor(value: string): [number, number, number] | undefined {
   const rgbMatch = normalized.match(
     /^rgba?\(\s*(\d+(?:\.\d+)?)\s*,\s*(\d+(?:\.\d+)?)\s*,\s*(\d+(?:\.\d+)?)(?:\s*,\s*[\d.]+\s*)?\)$/
   );
-  if (rgbMatch) {
+  if (rgbMatch?.[1] && rgbMatch[2] && rgbMatch[3]) {
     return [
       Number.parseFloat(rgbMatch[1]),
       Number.parseFloat(rgbMatch[2]),

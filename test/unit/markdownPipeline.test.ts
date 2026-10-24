@@ -2,7 +2,7 @@ import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 let renderMarkdown: any;
 let Uri: any;
-const statSyncMock = vi.fn(() => {
+const statSyncMock = vi.fn<(targetPath: string) => { size: number }>(() => {
   throw new Error('ENOENT');
 });
 
@@ -23,6 +23,45 @@ beforeEach(() => {
 });
 
 describe('markdownPipeline', () => {
+  it.each([
+    'data-omv-local-src="file:///outside/private.txt"',
+    'DATA-OMV-LOCAL-SRC="file:///outside/private.txt"',
+    'data-omv-export-srcset="file:///outside/private.txt 1x"',
+    'data-omv-image-blocked="remote-disabled" data-omv-remote-src="https://other.example/tracker.png"'
+  ])('replaces authored privileged image metadata before rendering: %s', (metadata) => {
+    const result = renderMarkdown(
+      `<img src="https://example.com/image.png" ${metadata}>`,
+      {
+        sourceUri: Uri.file('/workspace/docs/readme.md'),
+        webview: { asWebviewUri: (uri: unknown) => uri },
+        allowHtml: true,
+        allowRemoteImages: false,
+        maxImageMB: 8
+      }
+    );
+
+    expect(result.html).not.toContain('file:///outside/private.txt');
+    expect(result.html).not.toContain('https://other.example');
+    expect(result.html).toContain('src=""');
+    expect(result.html).toContain('data-omv-remote-src="https://example.com/image.png"');
+  });
+
+  it('rebuilds local metadata for inline raw HTML while preserving authored generic data attributes', () => {
+    const result = renderMarkdown(
+      'Photo: <img src="images/photo.png" data-omv-local-src="file:///outside/private.txt" data-caption="hello">',
+      {
+        sourceUri: Uri.file('/workspace/docs/readme.md'),
+        webview: { asWebviewUri: (uri: { toString(): string }) => ({ toString: () => `webview:${uri.toString()}` }) },
+        allowHtml: true,
+        allowRemoteImages: false,
+        maxImageMB: 8
+      }
+    );
+    expect(result.html).not.toContain('file:///outside');
+    expect(result.html).toContain('data-omv-local-src="file:///workspace/docs/images/photo.png"');
+    expect(result.html).toContain('data-caption="hello"');
+  });
+
   it('renders toc/frontmatter/mermaid/math placeholders and local image attrs', () => {
     const sourceUri = Uri.file('/workspace/docs/readme.md');
     const webview = {
@@ -162,8 +201,8 @@ describe('markdownPipeline', () => {
       maxImageMB: 8
     });
 
-    const encoded = Array.from(result.html.matchAll(/data-math="([^"]+)"/g), (match) =>
-      Buffer.from(match[1], 'base64').toString('utf8')
+    const encoded = Array.from(String(result.html).matchAll(/data-math="([^"]+)"/g), (match) =>
+      Buffer.from(match[1]!, 'base64').toString('utf8')
     );
 
     const inlineCount = (result.html.match(/omv-math-inline/g) ?? []).length;
