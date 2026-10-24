@@ -4,13 +4,13 @@ This guide shows how to style Offline Markdown Preview with installed GitHub sty
 
 You can either toggle the built-in GitHub styling import, set the paths directly in settings JSON, or run **Offline Markdown Preview: Set Custom CSS** from the Command Palette and choose the style option interactively.
 
-The extension supports two layers:
+The extension supports three optional styling layers:
 
 - `offlineMarkdownViewer.preview.useMarkdownPreviewGithubStyling`: import CSS from the installed `bierner.markdown-preview-github-styles` extension.
 - `offlineMarkdownViewer.preview.globalCustomCssPath`: a user-level stylesheet applied to every preview.
 - `offlineMarkdownViewer.preview.customCssPath`: a workspace- or folder-level stylesheet applied after the global stylesheet.
 
-If all three are configured, the installed GitHub styling is injected first, then global CSS, then workspace CSS. Workspace CSS wins on conflicts because it is injected last.
+If all three are configured, the installed GitHub styling is injected first, then global CSS, then workspace CSS. Later rules take precedence when their cascade priority and specificity are equal; `!important` and more specific selectors can still override them.
 
 For a repo-local test file you can use immediately, this repository includes `docs/custom-css/test-preview.css`.
 
@@ -143,6 +143,6 @@ If your styles do not apply:
 - Use an absolute path for `offlineMarkdownViewer.preview.globalCustomCssPath`. This is a user-level opt-in for loading a stylesheet from anywhere on your machine.
 - Use a workspace- or folder-relative path for `offlineMarkdownViewer.preview.customCssPath`.
 - Make sure the workspace or folder path does not leave the workspace root.
-- Check whether a workspace or folder stylesheet is overriding the imported GitHub styling or global stylesheet, because repo-local CSS is injected last and wins on conflicts.
+- Check whether a workspace or folder stylesheet is overriding the imported GitHub styling or global stylesheet. Repo-local CSS is injected last, while specificity and `!important` still affect which rules apply.
 
 If the path is invalid or unreadable, the extension shows a warning and continues rendering the preview without that stylesheet.

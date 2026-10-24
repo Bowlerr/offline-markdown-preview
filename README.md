@@ -1,182 +1,145 @@
 # Offline Markdown Preview
 
-![Offline Markdown Preview banner](images/banner.png)
+![Offline Markdown Preview](images/banner.png)
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![VS Code Marketplace Version](https://img.shields.io/visual-studio-marketplace/v/bowlerr.offline-markdown-preview?label=VS%20Code%20Marketplace)](https://marketplace.visualstudio.com/items?itemName=bowlerr.offline-markdown-preview)
-[![VS Code Marketplace Installs](https://img.shields.io/visual-studio-marketplace/i/bowlerr.offline-markdown-preview?label=Installs)](https://marketplace.visualstudio.com/items?itemName=bowlerr.offline-markdown-preview)
-[![VS Code Marketplace Rating](https://img.shields.io/visual-studio-marketplace/r/bowlerr.offline-markdown-preview?label=Rating)](https://marketplace.visualstudio.com/items?itemName=bowlerr.offline-markdown-preview)
+**Your Markdown, diagrams, and math — rendered locally in your editor.**
 
-Offline Markdown preview for VS Code with Mermaid diagrams, KaTeX math, secure local rendering, export, scroll sync, and outline navigation.
+Read while you write, find your place in long documents, and export the finished preview to HTML or PDF. Mermaid, KaTeX, and syntax highlighting are bundled with the extension. No rendering service, document upload, or telemetry.
 
-**Offline + Secure**: runs locally inside VS Code and the extension does not send your Markdown contents anywhere (no cloud, no telemetry).
+**[Install from Visual Studio Marketplace](https://marketplace.visualstudio.com/items?itemName=bowlerr.offline-markdown-preview)** · **[Install from Open VSX](https://open-vsx.org/extension/bowlerr/offline-markdown-preview)**
 
-## GIF Demos
+[![Marketplace version](https://img.shields.io/visual-studio-marketplace/v/bowlerr.offline-markdown-preview?label=Marketplace)](https://marketplace.visualstudio.com/items?itemName=bowlerr.offline-markdown-preview)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-A quick tour of key workflows (all offline, inside VS Code):
+[Quick start](#quick-start) · [Supported editors](#supported-editors) · [Features](#made-for-reading-and-writing) · [Demos](#see-it-in-action) · [Configuration](#make-it-yours) · [Privacy](#offline-by-default) · [Help](#need-a-hand)
 
-<table>
-  <tr>
-    <td width="50%" valign="top">
-      <strong>Live preview + scroll sync</strong><br/>
-      <img src="images/scroll.gif" alt="Live preview and scroll sync demo" />
-    </td>
-    <td width="50%" valign="top">
-      <strong>Mermaid + math rendering</strong><br/>
-      <img src="images/mermaid.gif" alt="Mermaid and math rendering demo" />
-    </td>
-  </tr>
-  <tr>
-    <td width="50%" valign="top">
-      <strong>Outline + heading navigation</strong><br/>
-      <img src="images/content-scroll.gif" alt="Outline and heading navigation demo" />
-    </td>
-    <td width="50%" valign="top">
-      <strong>Remote image download + cache</strong><br/>
-      <img src="images/remote-images.gif" alt="Remote image download and cache demo" />
-    </td>
-  </tr>
-</table>
+## Quick start
 
-## What You Get
+Use a compatible desktop editor from the [supported editors](#supported-editors) below. PDF export also needs a local installation of **Chrome, Edge, or Chromium**.
 
-- **Free**: no paywalls; MIT-licensed.
-- **Offline + secure by design**: render/preview/export works locally with bundled libraries (no CDN, no remote fonts, no telemetry).
-- **Secure webview defaults**: strict CSP + HTML sanitization (`DOMPurify`) enabled by default.
-- **Markdown preview panel** with live updates and editor/preview scroll sync.
-- **Bundled rendering stack**: Mermaid diagrams, KaTeX math, Prism syntax highlighting.
-- **Navigation tools**: in-preview Contents list, heading quick pick, copy heading links.
-- **Export tools**: HTML export and PDF export from the preview workflow.
-- **Safety controls**: external-link confirmation, image size limits, sanitization toggle (with explicit unsafe wording).
+1. Install **Offline Markdown Preview** using your editor's registry:
+   - **VS Code:** use the [Visual Studio Marketplace listing](https://marketplace.visualstudio.com/items?itemName=bowlerr.offline-markdown-preview), or run the command below in a terminal with VS Code's `code` command.
+   - **Open VSX-compatible editors**, such as [VSCodium](https://github.com/VSCodium/vscodium/blob/master/docs/extensions.md#how-to-use-the-open-vsx-registry): search the editor's Extensions view for **Offline Markdown Preview** by **bowlerr**, or visit the [Open VSX listing](https://open-vsx.org/extension/bowlerr/offline-markdown-preview).
 
-## Quick Start
+   ```sh
+   # VS Code CLI
+   code --install-extension bowlerr.offline-markdown-preview
+   ```
 
-1. Open a Markdown file (`.md`) in VS Code.
-2. Preview opens automatically by default (`offlineMarkdownViewer.preview.autoOpen = true`) when a Markdown editor becomes active.
-3. You can also run **Offline Markdown Preview: Open Preview** (or **Open Preview in Current Group**) manually.
-4. Use the preview's Contents list and heading commands to navigate larger documents.
-5. Export when needed with **Export HTML** or **Export PDF**.
+2. Open a Markdown file. The preview opens automatically when a Markdown editor becomes active.
+3. Start writing. The preview updates as you type, and editor and preview scrolling stay in sync.
+4. Use **Contents** to jump between headings, **Search** to find text, or **Export** to save HTML or PDF.
 
-Tip: use the editor title action to open preview while editing.
+Prefer to open the preview yourself? Set `offlineMarkdownViewer.preview.autoOpen` to `false`, then run **Offline Markdown Preview: Open Preview** from the Command Palette. **Open Preview in Current Group** is available too.
 
-## Privacy, Offline, and Data Safety
+## Supported editors
 
-- **No network required** for render, preview, or export.
-- **No telemetry** and no document-content upload.
-- **Remote web requests are blocked** in the webview runtime (`fetch`, `XMLHttpRequest`, `WebSocket`, `EventSource`) for `http(s)` targets.
-- **Remote images are blocked by default**; you can opt in via `offlineMarkdownViewer.preview.allowRemoteImages`.
-- **When remote images are blocked**, each remote image gets a **Download Image** action that caches it locally and replaces it in preview.
-- **Strict CSP** includes `connect-src 'none'`.
-- **Sanitization is on by default** (`offlineMarkdownViewer.sanitizeHtml = true`).
-- **Export writes files only on explicit user action** (HTML/PDF commands).
-- **Exports preserve offline defaults**: standalone HTML/PDF rendering blocks remote images unless you enabled them, and exported documents cannot run scripts.
-- **Exports use the completed preview**: a document change while capturing the preview, or a rendering timeout, cancels the export with a clear message instead of exporting incomplete content.
+The extension targets desktop editors that support the **VS Code 1.90 extension API** or newer.
 
-## Settings
+| Editor       | Installation                                                                                                                                                                                                                                                          |
+| ------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **VS Code**  | Install from the [Visual Studio Marketplace](https://marketplace.visualstudio.com/items?itemName=bowlerr.offline-markdown-preview).                                                                                                                                   |
+| **VSCodium** | Search its [Extensions view](https://github.com/VSCodium/vscodium/blob/master/docs/extensions.md#how-to-use-the-open-vsx-registry), which uses Open VSX by default, or visit the [Open VSX listing](https://open-vsx.org/extension/bowlerr/offline-markdown-preview). |
+| **Cursor**   | Search its [Extensions panel](https://cursor.com/help/customization/extensions), which uses Open VSX, for **Offline Markdown Preview** by **bowlerr**.                                                                                                                |
 
-These VS Code settings control rendering, safety, and performance:
+Automated application tests cover **VS Code 1.90 and current stable**. VSCodium and Cursor provide compatible extension installation paths; their runtime behavior with this extension has not been independently verified.
 
-- `offlineMarkdownViewer.enableMermaid` (default: `true`): enable Mermaid rendering (bundled locally).
-- `offlineMarkdownViewer.enableMath` (default: `true`): enable KaTeX math rendering (bundled locally).
-- `offlineMarkdownViewer.scrollSync` (default: `true`): synchronize editor and preview scrolling.
-- `offlineMarkdownViewer.sanitizeHtml` (default: `true`): sanitize rendered HTML in the webview; turning this off is unsafe.
-- `offlineMarkdownViewer.externalLinks.confirm` (default: `true`): confirm before opening external links.
-- `offlineMarkdownViewer.preview.autoOpen` (default: `true`): auto-open/reuse preview when a Markdown editor becomes active.
-- `offlineMarkdownViewer.preview.allowRemoteImages` (default: `false`): allow loading remote `http(s)` images in preview. When off, remote images are shown as a download action and cached locally for preview use.
-- `offlineMarkdownViewer.preview.useMarkdownPreviewGithubStyling` (default: `false`): load CSS from the installed `bierner.markdown-preview-github-styles` extension before any configured custom CSS, while respecting that extension's `colorTheme`, `lightTheme`, and `darkTheme` settings.
-- `offlineMarkdownViewer.preview.maxImageMB` (default: `24`): maximum local image size loaded into preview.
-- `offlineMarkdownViewer.export.embedImages` (default: `false`): embed local images as data URIs for HTML/PDF export (privacy warning shown).
-- `offlineMarkdownViewer.performance.debounceMs` (default: `120`): debounce delay for live preview updates.
-- `offlineMarkdownViewer.preview.globalCustomCssPath` (default: `""`): absolute path to a user-level `.css` file appended to every preview.
-- `offlineMarkdownViewer.preview.customCssPath` (default: `""`): workspace-relative `.css` file appended after the global stylesheet. Set this in workspace or folder settings to override the global baseline for a repo.
-- `offlineMarkdownViewer.preview.showFrontmatter` (default: `false`): show parsed YAML frontmatter above the rendered document.
+**Editor missing or extension not working?** [Report an editor compatibility issue](https://github.com/Bowlerr/offline-markdown-preview/issues/new?title=Editor%20compatibility%3A%20%5Beditor%20name%5D&body=%23%23%20Editor%0A-%20Name%3A%0A-%20Version%3A%0A%0A%23%23%20Extension%20version%0A%0A%23%23%20Operating%20system%20and%20version%0A%0A%23%23%20Expected%20behavior%0A%0A%23%23%20Actual%20behavior%0A%0A%23%23%20Minimal%20reproduction%0A1.%0A2.%0A3.%0A%0AInclude%20a%20small%20Markdown%20example%20if%20relevant.%0A).
 
-## Custom CSS
+## Made for reading and writing
 
-If you already have **Markdown Preview Github Styling** installed, the simplest GitHub-style setup is to enable `offlineMarkdownViewer.preview.useMarkdownPreviewGithubStyling` or run **Offline Markdown Preview: Set Custom CSS** and choose the installed GitHub styling option.
+| Workflow              | What you get                                                                                               |
+| --------------------- | ---------------------------------------------------------------------------------------------------------- |
+| **Write and review**  | Live updates, scroll sync, and a preview that keeps your reading position during edits.                    |
+| **Explain an idea**   | Mermaid diagrams, KaTeX math, and highlighted code blocks, rendered with bundled libraries.                |
+| **Find your place**   | A contents list, heading quick pick, copyable heading links, and search across code and inline formatting. |
+| **Explore diagrams**  | Pan and zoom with the mouse, keyboard, or diagram toolbar.                                                 |
+| **Share your work**   | HTML and PDF exports from the completed preview, preserving its background and text colors.                |
+| **Choose your style** | Installed GitHub preview styling, your own CSS, and optional frontmatter display.                          |
 
-Use `offlineMarkdownViewer.preview.globalCustomCssPath` in user settings to apply a stylesheet everywhere, then optionally layer `offlineMarkdownViewer.preview.customCssPath` in a workspace for repo-specific tweaks.
+## See it in action
 
-Preview styles are applied in this order:
+![Offline Markdown Preview displaying a sample document in VS Code](images/preview.png)
 
-1. Offline Markdown Preview base CSS
-2. Installed GitHub Markdown Preview Styling CSS, if enabled
-3. Global custom CSS
-4. Workspace or folder custom CSS
+Choose a demo to open the animation.
 
-If both custom CSS settings are set, the global stylesheet is injected first and the workspace stylesheet is injected second, so workspace rules win on conflicts.
+| Demo                             | Take a look                                                                    |
+| -------------------------------- | ------------------------------------------------------------------------------ |
+| **Live preview and scroll sync** | [Watch edits and scrolling stay together →](images/scroll.gif)                 |
+| **Mermaid and math**             | [Watch diagrams and equations render →](images/mermaid.gif)                    |
+| **Contents navigation**          | [Watch heading navigation →](images/content-scroll.gif)                        |
+| **Remote image download**        | [Watch an explicit image download and local cache →](images/remote-images.gif) |
 
-You can also run **Offline Markdown Preview: Set Custom CSS** from the Command Palette to enable installed GitHub styling or pick a global/workspace stylesheet without editing settings JSON manually.
+## Navigate without losing your place
 
-For a full setup guide, example CSS, and GitHub-style walkthrough, see [docs/custom-css/README.md](docs/custom-css/README.md).
+Search includes fenced code and phrases split across inline formatting. Broad queries show the first **1,000 matches** and indicate when that limit is reached; refine the query to narrow the results.
 
-## Commands
+With focus inside the preview:
 
-| Command                                                   | Purpose                                                 |
-| --------------------------------------------------------- | ------------------------------------------------------- |
-| `Offline Markdown Preview: Open Preview`                  | Open the preview in the remembered/side editor group    |
-| `Offline Markdown Preview: Open Preview in Current Group` | Open the Markdown preview in the active editor group    |
-| `Offline Markdown Preview: Export HTML`                   | Export the current preview/document as HTML             |
-| `Offline Markdown Preview: Export PDF`                    | Export the current preview/document as PDF              |
-| `Offline Markdown Preview: Set Custom CSS`                | Enable installed GitHub styling or configure custom CSS |
-| `Offline Markdown Preview: Show Remote Image Cache Usage` | Show current remote-image cache size/file counts        |
-| `Offline Markdown Preview: Clear Remote Image Cache`      | Delete cached remote images used by preview             |
-| `Offline Markdown Preview: Toggle Scroll Sync`            | Enable/disable editor <-> preview scroll sync           |
-| `Offline Markdown Preview: Copy Heading Link`             | Choose a heading and copy its anchor link               |
-| `Offline Markdown Preview: Quick Pick Heading`            | Jump to a heading via quick pick                        |
+| Shortcut                                   | Action                                     |
+| ------------------------------------------ | ------------------------------------------ |
+| `Ctrl+F` / `Cmd+F`                         | Open or focus search                       |
+| `Enter` / `Shift+Enter` in search          | Next / previous match                      |
+| `Escape`                                   | Hide search and return focus to its toggle |
+| Arrow keys on a focused diagram            | Pan the diagram                            |
+| `Enter` / `Space` on a focused local image | Open the image                             |
 
-## Remote Image Cache
+The contents list keeps keyboard focus when you select a heading. Diagram controls also support zoom, fit, and actual size; see the [full shortcut reference](docs/CONFIGURATION.md#keyboard-and-mouse-controls).
 
-Remote images downloaded from blocked placeholders are cached locally for offline-safe preview reuse.
+## Export the finished preview
 
-- Workspace cache path: `.offline-markdown-preview/remote-images` (inside each workspace folder).
-- Global fallback cache path: VS Code extension global storage (`bowlerr.offline-markdown-preview/remote-images`) when no workspace folder is available.
-- Use **Offline Markdown Preview: Show Remote Image Cache Usage** to inspect total size/count.
-- Use **Offline Markdown Preview: Clear Remote Image Cache** to remove cached remote images.
+Use the preview's **Export** button or run **Offline Markdown Preview: Export HTML** or **Offline Markdown Preview: Export PDF**.
 
-## Keybindings (VS Code)
+- **HTML:** saves the rendered document and styles. Local images remain file references by default. To include their contents in the HTML file, enable `offlineMarkdownViewer.export.embedImages` and review the confirmation before exporting.
+- **PDF:** uses a local Chrome, Edge, or Chromium installation. It waits for images and fonts; layout can vary slightly by browser and platform.
+- **Consistent output:** export captures a completed preview. A document change during capture or a preview-rendering timeout cancels the export with a message so you can retry.
 
-No extension-level VS Code keybindings are registered by default (nothing is contributed in `package.json`).
-You can add your own command shortcuts in VS Code if desired.
+Exports block remote images by default and prevent document scripts from running. Enabling remote images also enables them during export. See [export settings and limits](docs/CONFIGURATION.md#export).
 
-Preview-local shortcuts (when focus is inside the preview webview):
+## Make it yours
 
-- `Cmd/Ctrl+F`: open/focus preview search
-- `Enter` (in search box): next match
-- `Shift+Enter` (in search box): previous match
-- `Escape`: hide search and return focus to its toggle
-- Arrow keys (on a focused diagram): pan. The diagram toolbar also provides pan buttons.
-- `Enter` or `Space` (on a focused local image): open the image
+Open your editor's Settings and search for **Offline Markdown Preview**, or edit your settings JSON. For example:
 
-Search includes fenced code and text split across inline formatting. Broad queries highlight and navigate the first 1,000 matches to keep large documents responsive; the status shows when this limit is reached, so you can refine the query. The preview keeps your reading position during live edits, and the contents list retains keyboard focus when you select a heading.
+```json
+{
+  "offlineMarkdownViewer.preview.autoOpen": false,
+  "offlineMarkdownViewer.preview.showFrontmatter": true,
+  "offlineMarkdownViewer.preview.customCssPath": ".vscode/markdown-preview.css"
+}
+```
 
-## Notes, Limits, and Safety
+Put the CSS path in **workspace or folder settings** and keep the file inside that workspace. For a stylesheet shared across projects, use `offlineMarkdownViewer.preview.globalCustomCssPath` in user settings instead.
 
-- **Sanitization can be disabled** for advanced cases, but this is unsafe for untrusted Markdown/HTML content.
-- **Paths outside the workspace may be blocked** for preview safety when resolving local resources.
-- **Large images are capped** by `offlineMarkdownViewer.preview.maxImageMB` to avoid excessive memory usage in preview.
-- **Image downloads are bounded** by the same size limit and a 30-second timeout. Image actions allow files within the document's workspace, its containing directory when opened outside a workspace, or the extension's image cache. Files outside these roots, including escaping symlinks, cannot be opened or embedded.
-- **Preview styling supports multiple layers**: `offlineMarkdownViewer.preview.useMarkdownPreviewGithubStyling` imports CSS from the installed `bierner.markdown-preview-github-styles` extension, `offlineMarkdownViewer.preview.globalCustomCssPath` accepts an explicitly configured absolute `.css` file from user settings, and `offlineMarkdownViewer.preview.customCssPath` accepts only workspace- or folder-local `.css` files. Workspace or folder CSS is applied last and takes precedence.
-- **PDF export requires a local Chrome, Edge, or Chromium installation**. It renders locally, waits for images/fonts, and reports actionable failures in the Offline Markdown Preview output channel. Layout may vary slightly by browser/platform.
+Run **Offline Markdown Preview: Set Custom CSS** to choose a stylesheet interactively or reuse the installed **Markdown Preview Github Styling** extension. Styles apply in this order: base styles → installed GitHub styles → global CSS → workspace CSS, following the normal CSS cascade.
 
-## Troubleshooting
+**[All settings and commands](docs/CONFIGURATION.md)** · **[Custom CSS setup and examples](docs/custom-css/README.md)**
 
-- **Mermaid not rendering**: verify `offlineMarkdownViewer.enableMermaid` is enabled; invalid Mermaid syntax falls back to code/plain output.
-- **Math not rendering**: verify `offlineMarkdownViewer.enableMath` is enabled; invalid expressions render as plain text fallback.
-- **Images missing**: check workspace path restrictions and `offlineMarkdownViewer.preview.maxImageMB` for large local images.
-- **Downloaded remote images not showing**: run **Show Remote Image Cache Usage** and verify cache directories exist/readable, then retry or clear cache.
-- **Custom CSS not applied**: ensure `offlineMarkdownViewer.preview.globalCustomCssPath` points to an absolute `.css` file you explicitly opted into in user settings, or `offlineMarkdownViewer.preview.customCssPath` points to a workspace- or folder-local `.css` file. Workspace/folder CSS overrides global CSS on conflicts.
-- **Installed GitHub styling not applied**: verify `bierner.markdown-preview-github-styles` is installed and `offlineMarkdownViewer.preview.useMarkdownPreviewGithubStyling` is enabled.
-- **External links are blocked/prompting**: this is expected; review `offlineMarkdownViewer.externalLinks.confirm` and use explicit link opens.
+## Offline by default
 
-## Changelog
+Rendering uses local, bundled libraries. The extension does not upload your Markdown or collect telemetry. Preview and export do not require a network connection with the default settings.
 
-See `CHANGELOG.md`.
+- **Remote images start blocked.** Choose **Download Image** to fetch a specific URL and cache the image locally, or explicitly enable `offlineMarkdownViewer.preview.allowRemoteImages` to load remote images directly. These actions make network requests.
+- **HTML sanitization is enabled.** A Content Security Policy restricts what the preview can load and run. Disabling sanitization is unsafe for untrusted content.
+- **External links ask first.** Opening a link uses your browser after confirmation by default.
+- **Local image access stays within allowed roots.** Image actions and embedding are limited to the document's workspace, its containing directory outside a workspace, or the extension's image cache. Escaping symlinks are rejected.
+- **Image downloads have limits.** Local images and explicit downloads use the configured size limit, which defaults to 24 MB. Downloads also have a 30-second timeout.
 
-## License
+Use **Show Remote Image Cache Usage** or **Clear Remote Image Cache** from the Command Palette to manage downloaded files. The [cache reference](docs/CONFIGURATION.md#remote-image-cache) explains storage locations and session behavior.
 
-MIT License - see `LICENSE`.
+## Need a hand?
 
-## Credits
+| If you see…                           | Try this                                                                                                               |
+| ------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| A diagram or equation shown as source | Check its syntax and the `enableMermaid` / `enableMath` settings.                                                      |
+| A missing image                       | Check the path and size limit. For a remote image, use **Download Image** or explicitly allow remote images.           |
+| CSS that does not apply               | Check the file's location, `.css` extension, and setting scope. Follow the [styling guide](docs/custom-css/README.md). |
+| An export cancelled before saving     | Wait for the preview to finish rendering, then retry.                                                                  |
+| A PDF export failure                  | Check that a supported browser is installed, then open **View → Output → Offline Markdown Preview** for diagnostics.   |
 
-See `CREDITS.md` for maintainer and bundled-library credits.
+See [troubleshooting and known limits](docs/CONFIGURATION.md#troubleshooting-and-known-limits) for more detail. To report a problem, [open an issue](https://github.com/Bowlerr/offline-markdown-preview/issues) with your extension version, editor name and version, operating system, and a small example that reproduces it.
+
+## Project
+
+Free and open source under the [MIT License](LICENSE).
+
+[Changelog](CHANGELOG.md) · [Contributing](CONTRIBUTING.md) · [Credits and bundled libraries](CREDITS.md) · [Source on GitHub](https://github.com/Bowlerr/offline-markdown-preview)

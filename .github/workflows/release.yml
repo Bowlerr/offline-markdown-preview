@@ -67,7 +67,8 @@ jobs:
           const version = require('./package.json').version;
           const section = fs.readFileSync('CHANGELOG.md', 'utf8').split(`## ${version}\n`)[1]?.split('\n## ')[0]?.trim();
           if (!section) throw new Error(`Missing changelog for ${version}`);
-          fs.writeFileSync('release-notes.md', section + '\n');
+          const installLinks = '\n\n- [Install from Visual Studio Marketplace](https://marketplace.visualstudio.com/items?itemName=bowlerr.offline-markdown-preview)\n- [Install from Open VSX](https://open-vsx.org/extension/bowlerr/offline-markdown-preview)\n';
+          fs.writeFileSync('release-notes.md', section + installLinks);
           JS
       - name: Create or verify immutable release artifact
         env:

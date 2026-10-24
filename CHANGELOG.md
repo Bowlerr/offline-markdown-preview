@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.5.1
+
+- Refresh the extension icon and README banner with a clearer Markdown-and-page identity
+- Reorganize the README with direct installation links, a shorter quick start, focused demos, and clearer configuration, privacy, and export guidance
+- Clarify support for VS Code and compatible editors, including installation through Open VSX
+- Add Marketplace and Open VSX installation links to generated GitHub release notes
+
 ## 0.5.0
 
 - Search fenced code and phrases spanning inline formatting, with previous-match keyboard navigation, clear no-results feedback, and accessible controls

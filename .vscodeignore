@@ -27,3 +27,5 @@ docs/RELEASE-PLAN.md
 **/.gitkeep
 vitest.config.*
 playwright.config.*
+docs/BRANDING.md
+scripts/**
