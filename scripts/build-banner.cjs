@@ -59,7 +59,7 @@ const tileShadowSvg =
   <rect x="86" y="94" width="356" height="353" rx="70" fill="#000000" opacity="0.4" filter="url(#tile-shadow)"/>
 </svg>`);
 (async () => {
-  const icon = await sharp(path.join(root, 'images/icon.png'))
+  const icon = await sharp(path.join(root, 'images/icon-master.png'))
     .resize(400, 400, { fit: 'contain' })
     .png()
     .toBuffer();

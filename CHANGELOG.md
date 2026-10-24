@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.5.4
+
+- Export the approved logo at 1024 pixels for Marketplace compatibility while preserving the original master and unchanged banner
+- Validate PNG dimensions as well as file size before packaging and publishing
+
 ## 0.5.3
 
 - Losslessly optimize the extension icon to meet the Marketplace file-size limit while preserving every logo pixel

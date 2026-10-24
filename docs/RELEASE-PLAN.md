@@ -18,7 +18,7 @@ Baseline: `ef3d02d` on `main`, manifest/tag 0.4.0. At intake, GitHub's latest re
 | R6  | Actual VS Code/webview E2E journeys replace fixture-only checks; failures fail the gate.                                                                                     | Current/minimum suites passed 8/8 each; affected contrast/export journeys rechecked 4/4 on each; final installed VSIX smoke passed 4/4, including IME search                                |
 | R7  | Reproducible dependency install, explicit type checking, CI and packaging gates, meaningful dependency audit.                                                                | Clean install, lint, strict types, 149 unit tests, build and package inspection passed; final PR and post-merge CI passed across three operating systems and both supported VS Code targets |
 | R8  | Version, changelog, docs and release notes agree; required checks/review pass; intended artifacts are published and verified.                                                | Version 0.5.0 published and downloads verified on GitHub, Marketplace and Open VSX; both registry downloads exactly match the canonical VSIX                                                |
-| R9  | User-requested follow-up: refresh the logo/banner, improve the complete README, include install links in release notes, and publish the final branding with verified assets. | Final branding released on GitHub/Open VSX as 0.5.2; Marketplace icon-size rejection corrected with pixel-identical PNG compression for 0.5.3                                               |
+| R9  | User-requested follow-up: refresh the logo/banner, improve the complete README, include install links in release notes, and publish the final branding with verified assets. | Final branding ready in 0.5.4 with a store-compatible icon; registry publication and verification pending                                                                                   |
 
 ## Ownership
 
@@ -92,6 +92,12 @@ After 0.5.0 publication, the user requested a new logo based on an attached blue
 - [GitHub release 0.5.2](https://github.com/Bowlerr/offline-markdown-preview/releases/tag/0.5.2) and the exact Open VSX 0.5.2 public endpoint are available. Open VSX reports publication at `2026-10-24T04:32:10.069885Z`.
 - Canonical VSIX: 3,539,537 bytes, 21 files; SHA-256 `d7cc3cd9333c2075b8c9b95ba682e66df6ef824fbd41cd6ddcb0f93ae093b080`. The four changed payloads versus 0.5.1 are version metadata, changelog and banner; all runtime files and the README remain identical.
 - Marketplace rejected the package because its 1,100,205-byte icon exceeds the server's 1,024 KB limit. Version 0.5.3 reduces the PNG to 765,173 bytes using lossless compression, with decoded RGBA equality verified, and adds a prepublish size guard. The banner remains unchanged and uses the identical logo pixels. The prior GitHub and Open VSX versions remain immutable.
+
+## 0.5.3 dimension validation and 0.5.4 correction
+
+- [GitHub release 0.5.3](https://github.com/Bowlerr/offline-markdown-preview/releases/tag/0.5.3) points to `7a731773e027047dc9ec1db3b692bee7a1ba7652`. All verification jobs passed in [release run](https://github.com/Bowlerr/offline-markdown-preview/actions/runs/40063060751) and [push CI](https://github.com/Bowlerr/offline-markdown-preview/actions/runs/40063060687).
+- Its canonical 21-file VSIX is 3,436,892 bytes, SHA-256 `a0851462eade4f2abf44121c20b79c254dde0dfaeee68fb4c366ee968efa275b`; every payload matches the locally reviewed package. The 765,173-byte icon has decoded RGBA equality with the generated original.
+- Marketplace's next validation stage rejected the 1,254-pixel dimensions: its maximum is 1,024 by 1,024 pixels. Version 0.5.3 was not uploaded to Open VSX. Version 0.5.4 exports a 1,024-pixel store icon, preserves the original master for the unchanged banner, and validates both PNG dimensions and file size before packaging.
 
 ## Deferred roadmap
 

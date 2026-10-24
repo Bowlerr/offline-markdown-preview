@@ -21,6 +21,7 @@ yarn.lock
 .prettierrc
 .DS_Store
 images/*.gif
+images/icon-master.png
 docs/RELEASE-PLAN.md
 .nvmrc
 .gitignore
