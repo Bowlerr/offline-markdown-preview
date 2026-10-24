@@ -75,8 +75,10 @@ jobs:
           RELEASE_VERSION: ${{ needs.version.outputs.version }}
         run: |
           file="offline-markdown-preview-$RELEASE_VERSION.vsix"
-          if gh api "repos/$GITHUB_REPOSITORY/commits/$RELEASE_VERSION" --jq .sha > tag-sha.txt 2> tag-error.txt; then
-            tag_sha=$(cat tag-sha.txt)
+          # The refs API returns 404 for a missing tag; the commits API returns 422.
+          if gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$RELEASE_VERSION" > tag-ref.json 2> tag-error.txt; then
+            # Resolve the full tag ref so annotated tags work and branches cannot collide.
+            tag_sha=$(gh api "repos/$GITHUB_REPOSITORY/commits/refs%2Ftags%2F$RELEASE_VERSION" --jq .sha)
           elif grep -q 'HTTP 404' tag-error.txt; then
             tag_sha=''
           else
@@ -87,7 +89,7 @@ jobs:
             echo '::error::Release version already points to a different source revision. Bump the version.'
             exit 1
           fi
-          if gh release view "$RELEASE_VERSION" >/dev/null 2>&1; then
+          if gh release view "$RELEASE_VERSION" > release-details.txt 2> release-error.txt; then
             is_draft=$(gh release view "$RELEASE_VERSION" --json isDraft --jq .isDraft)
             if [ "$is_draft" = true ]; then
               echo '::error::An existing draft release needs source verification and publication or removal before retrying.'
@@ -107,8 +109,11 @@ jobs:
               # Recover a release whose tag/notes were created before an upload failed.
               gh release upload "$RELEASE_VERSION" "$file"
             fi
-          else
+          elif [ "$(cat release-error.txt)" = 'release not found' ]; then
             gh release create "$RELEASE_VERSION" "$file" --target "$GITHUB_SHA" --title "$RELEASE_VERSION" --notes-file release-notes.md
+          else
+            cat release-error.txt >&2
+            exit 1
           fi
           sha256sum "$file" >> "$GITHUB_STEP_SUMMARY"
       - name: Preserve canonical release artifact for both registries
