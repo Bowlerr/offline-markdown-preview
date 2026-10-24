@@ -18,7 +18,7 @@ Baseline: `ef3d02d` on `main`, manifest/tag 0.4.0. At intake, GitHub's latest re
 | R6  | Actual VS Code/webview E2E journeys replace fixture-only checks; failures fail the gate.                                                                                     | Current/minimum suites passed 8/8 each; affected contrast/export journeys rechecked 4/4 on each; final installed VSIX smoke passed 4/4, including IME search                                |
 | R7  | Reproducible dependency install, explicit type checking, CI and packaging gates, meaningful dependency audit.                                                                | Clean install, lint, strict types, 149 unit tests, build and package inspection passed; final PR and post-merge CI passed across three operating systems and both supported VS Code targets |
 | R8  | Version, changelog, docs and release notes agree; required checks/review pass; intended artifacts are published and verified.                                                | Version 0.5.0 published and downloads verified on GitHub, Marketplace and Open VSX; both registry downloads exactly match the canonical VSIX                                                |
-| R9  | User-requested follow-up: refresh the logo/banner, improve the complete README, include install links in release notes, and publish the final branding with verified assets. | 0.5.1 published on GitHub; user requested companion-banner alignment before registry publication, final matching banner prepared as 0.5.2                                                   |
+| R9  | User-requested follow-up: refresh the logo/banner, improve the complete README, include install links in release notes, and publish the final branding with verified assets. | Final branding released on GitHub/Open VSX as 0.5.2; Marketplace icon-size rejection corrected with pixel-identical PNG compression for 0.5.3                                               |
 
 ## Ownership
 
@@ -85,6 +85,13 @@ After 0.5.0 publication, the user requested a new logo based on an attached blue
 - Canonical VSIX: 3,508,142 bytes; SHA-256 `c79789a61f6b15e2b07cfbd5634a28a9bae709e2acbe214524871a6e3dcd0159`. The 21-file package contains the new icon, banner, real product screenshot and configuration guide. Runtime bundles remain byte-identical to 0.5.0.
 - Documentation checks covered 36 internal links/anchors, all 14 setting defaults, all 10 commands and JSON examples. The supported-editors section links to official VSCodium and Cursor installation guidance and distinguishes compatibility from directly tested VS Code targets. Its issue link pre-fills editor/version, extension version, OS, expected/actual behavior and reproduction details without submitting an issue.
 - Registry uploads were held before submission when the user requested matching the evolving SQLite IntelliView banner. GitHub 0.5.1 remains immutable; the final matching banner is prepared as 0.5.2 for the registry release. The reference banner settled at SQLite IntelliView commit `a46b75c`; the Markdown banner retains its own exact logo and adds a more visible rendered-preview illustration at the user's request.
+
+## 0.5.2 publication and 0.5.3 packaging correction
+
+- Source revision `ea0553fdef971af9943552f020b14b773c75b087`; [release run](https://github.com/Bowlerr/offline-markdown-preview/actions/runs/40061984486) and [push CI](https://github.com/Bowlerr/offline-markdown-preview/actions/runs/40061984239) passed all three operating-system checks and both actual VS Code E2E targets.
+- [GitHub release 0.5.2](https://github.com/Bowlerr/offline-markdown-preview/releases/tag/0.5.2) and the exact Open VSX 0.5.2 public endpoint are available. Open VSX reports publication at `2026-10-24T04:32:10.069885Z`.
+- Canonical VSIX: 3,539,537 bytes, 21 files; SHA-256 `d7cc3cd9333c2075b8c9b95ba682e66df6ef824fbd41cd6ddcb0f93ae093b080`. The four changed payloads versus 0.5.1 are version metadata, changelog and banner; all runtime files and the README remain identical.
+- Marketplace rejected the package because its 1,100,205-byte icon exceeds the server's 1,024 KB limit. Version 0.5.3 reduces the PNG to 765,173 bytes using lossless compression, with decoded RGBA equality verified, and adds a prepublish size guard. The banner remains unchanged and uses the identical logo pixels. The prior GitHub and Open VSX versions remain immutable.
 
 ## Deferred roadmap
 

@@ -2,7 +2,7 @@
   "name": "offline-markdown-preview",
   "displayName": "Offline Markdown Preview",
   "description": "Offline Markdown preview for VS Code and compatible editors, with Mermaid diagrams, KaTeX math, secure local rendering, HTML/PDF export, and scroll sync.",
-  "version": "0.5.2",
+  "version": "0.5.3",
   "publisher": "bowlerr",
   "author": {
     "name": "Bowlerr",
@@ -207,7 +207,7 @@
   },
   "scripts": {
     "build": "node esbuild.config.mjs",
-    "vscode:prepublish": "npm run build",
+    "vscode:prepublish": "node scripts/check-package-assets.mjs && npm run build",
     "watch": "node esbuild.config.mjs --watch",
     "lint": "eslint src test --ext .ts",
     "typecheck": "tsc --noEmit",

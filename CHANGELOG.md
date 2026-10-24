@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.5.3
+
+- Losslessly optimize the extension icon to meet the Marketplace file-size limit while preserving every logo pixel
+- Check icon size before packaging or publishing to catch oversized assets before release
+
 ## 0.5.2
 
 - Align the banner with the SQLite IntelliView companion design: a shared navy-and-cyan palette, local/offline/free label, full-height rendered Markdown preview illustration that fades toward the title
