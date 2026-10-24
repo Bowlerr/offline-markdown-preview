@@ -95,6 +95,44 @@ test('search crosses inline formatting and code spans with keyboard navigation',
   await search.fill('const searchableCode');
   await expect(preview.locator('.omv-meta')).toHaveText('1 of 1 matches');
   await expect(preview.locator('mark mark')).toHaveCount(0);
+  // Start composition in the same task as a pending ordinary input debounce.
+  // The composing value must not replace the current results before commit.
+  await search.evaluate(async (element) => {
+    const input = element as HTMLInputElement;
+    input.value = 'pending search';
+    input.dispatchEvent(
+      new InputEvent('input', {
+        bubbles: true,
+        inputType: 'insertText',
+        data: 'pending search'
+      })
+    );
+    input.dispatchEvent(
+      new CompositionEvent('compositionstart', { bubbles: true })
+    );
+    input.value = 'cross format';
+    input.dispatchEvent(
+      new InputEvent('input', {
+        bubbles: true,
+        inputType: 'insertCompositionText',
+        data: 'cross format',
+        isComposing: true
+      })
+    );
+    // Deliberately outlast the 80 ms debounce to catch a timer that was not cancelled.
+    await new Promise((resolve) => setTimeout(resolve, 200));
+  });
+  await expect(preview.locator('.omv-meta')).toHaveText('1 of 1 matches');
+  await search.evaluate((element) =>
+    element.dispatchEvent(
+      new CompositionEvent('compositionend', {
+        bubbles: true,
+        data: 'cross format'
+      })
+    )
+  );
+  // Some IMEs emit no trailing non-composing input event after compositionend.
+  await expect(preview.locator('.omv-meta')).toHaveText('1 of 3 matches');
   await preview.getByRole('button', { name: 'Clear search' }).click();
   await expect(preview.locator('pre code')).toHaveJSProperty(
     'innerHTML',

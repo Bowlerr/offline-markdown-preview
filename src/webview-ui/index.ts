@@ -155,10 +155,14 @@ for (const event of ['wheel', 'pointerdown', 'touchstart', 'keydown']) {
 searchInput.value = state.searchQuery ?? '';
 applyUiVisibility();
 searchInput.addEventListener('input', (event) => {
-  if ((event as InputEvent).isComposing) return;
-  if (searchTimer) clearTimeout(searchTimer);
-  searchTimer = setTimeout(runSearch, 80);
+  if ((event as InputEvent).isComposing) {
+    if (searchTimer) clearTimeout(searchTimer);
+    searchTimer = undefined;
+    return;
+  }
+  scheduleSearch();
 });
+searchInput.addEventListener('compositionend', scheduleSearch);
 
 for (const btn of root.querySelectorAll<HTMLButtonElement>(
   'button[data-ui-toggle]'
@@ -334,6 +338,11 @@ async function handleMessage(
       break;
     }
   }
+}
+
+function scheduleSearch(): void {
+  if (searchTimer) clearTimeout(searchTimer);
+  searchTimer = setTimeout(runSearch, 80);
 }
 
 function runSearch(): void {
