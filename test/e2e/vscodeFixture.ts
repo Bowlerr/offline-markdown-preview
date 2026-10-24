@@ -29,6 +29,7 @@ export const test = base.extend<{ vscode: VsCodeSession }>({
     const sandbox = await mkdtemp(join(tmpdir(), 'omv-e2e-'));
     const workspace = join(sandbox, 'workspace');
     const userData = join(sandbox, 'user-data');
+    const processOutput = { stdout: '', stderr: '' };
     let closeApp: () => Promise<unknown> = async () => undefined;
     try {
       await cp(join(root, '.e2e-workspace'), workspace, {
@@ -103,6 +104,14 @@ export const test = base.extend<{ vscode: VsCodeSession }>({
         env,
         timeout: 60_000
       });
+      for (const stream of ['stdout', 'stderr'] as const) {
+        app.process()[stream]?.on('data', (chunk: Buffer | string) => {
+          // Keep useful tail diagnostics without unbounded memory on a noisy failure.
+          processOutput[stream] = (
+            processOutput[stream] + chunk.toString()
+          ).slice(-1_048_576);
+        });
+      }
       closeApp = async () => {
         const timer = setTimeout(() => app.process().kill('SIGKILL'), 5_000);
         try {
@@ -222,7 +231,32 @@ export const test = base.extend<{ vscode: VsCodeSession }>({
       try {
         await closeApp();
       } finally {
-        await rm(sandbox, { recursive: true, force: true });
+        try {
+          if (testInfo.status !== testInfo.expectedStatus) {
+            await writeFile(
+              testInfo.outputPath('vscode-process.log'),
+              `STDOUT (last 1 MiB):\n${processOutput.stdout}\nSTDERR (last 1 MiB):\n${processOutput.stderr}`
+            );
+            try {
+              // Includes extension-host and output-channel logs, flushed on close.
+              await cp(
+                join(userData, 'logs'),
+                testInfo.outputPath('vscode-logs'),
+                {
+                  recursive: true
+                }
+              );
+            } catch (error) {
+              // Preserve the original test failure and make missing diagnostics explicit.
+              await writeFile(
+                testInfo.outputPath('vscode-log-capture-error.txt'),
+                String(error)
+              );
+            }
+          }
+        } finally {
+          await rm(sandbox, { recursive: true, force: true });
+        }
       }
     }
   }
@@ -230,7 +264,10 @@ export const test = base.extend<{ vscode: VsCodeSession }>({
 
 export { expect };
 
-export async function waitForFile(path: string): Promise<Buffer> {
+export async function waitForFile(
+  path: string,
+  timeout = 30_000
+): Promise<Buffer> {
   let bytes: Buffer | undefined;
   await expect
     .poll(
@@ -242,7 +279,7 @@ export async function waitForFile(path: string): Promise<Buffer> {
           return 0;
         }
       },
-      { timeout: 30_000, message: `Export should write ${path}` }
+      { timeout, message: `Export should write ${path}` }
     )
     .toBeGreaterThan(0);
   return bytes!;

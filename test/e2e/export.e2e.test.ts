@@ -71,7 +71,9 @@ test('exports a PDF from a cold preview through the real command and Chromium re
   const target = join(vscode.workspace, 'journey.pdf');
   await saveInput.fill(target);
   await saveInput.press('Enter');
-  const pdf = await waitForFile(target);
+  // PDF export starts two Chromium processes; virtual-time budgets do not bound
+  // their wall time on a busy CI worker. Keep a finite deadline for the real file.
+  const pdf = await waitForFile(target, 60_000);
   expect(pdf.subarray(0, 5).toString()).toBe('%PDF-');
   expect(pdf.length).toBeGreaterThan(5000);
   expect(pdf.subarray(-1024).toString()).toContain('%%EOF');
