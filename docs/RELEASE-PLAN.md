@@ -1,5 +1,7 @@
 # Release delivery record
 
+Latest cycle (November 16, 2026): **0.5.5 is verified and published on GitHub; Marketplace and Open VSX publication awaits publisher access.** Resume the same canonical release artifact before starting another version.
+
 ## Objective and selected scope
 
 Research, implement, verify, version, and publish improvements autonomously. Preserve offline-first rendering, document privacy, and existing user work. The selected delivery scope is **0.5.0: reliable reading and safe exports**. The scope is finite; additional product ideas are recorded below rather than expanding delivery indefinitely.
@@ -139,6 +141,17 @@ Candidate evidence:
 
 Termination scope: cancellation targets only the spawned browser's POSIX process group or Windows process tree. Deliberately detached descendants can escape that group; inherited output-stream waits still have a finite fallback. Windows uses the OS tree termination tool and falls back to terminating the owned parent if that tool fails. These OS limitations are not a claim that arbitrary detached processes can always be stopped.
 
-Local publishing PATs and the established vsce file are absent; repository-secret readiness will be checked by the authorized release workflow. Personal Chrome control is unavailable in this session.
+Initial checks found no publisher PAT environment variables or legacy credential files. Subsequent scoped checks found existing publisher entries in macOS Keychain, but unattended reads require user authorization (details below). Personal Chrome control is unavailable in this session.
 
 - First remote candidate `f33f905` passed all three OS lint/type/build/unit jobs. Both editor jobs stopped before launching tests because the floating Ubuntu image supplied Ubuntu 26.04, unsupported by Playwright 1.58.2. The E2E job is now pinned to Ubuntu 24.04, which the [pinned Playwright platform implementation](https://github.com/microsoft/playwright/blob/v1.58.2/packages/playwright-core/src/server/utils/hostPlatform.ts) explicitly supports. The three-OS unit/build matrix remains on the current runner images. No test was skipped or assertion weakened for this infrastructure correction.
+
+### 0.5.5 verified release and publication handoff
+
+- [PR #15](https://github.com/Bowlerr/offline-markdown-preview/pull/15) merged after both final [PR CI](https://github.com/Bowlerr/offline-markdown-preview/actions/runs/43844990438) and [branch CI](https://github.com/Bowlerr/offline-markdown-preview/actions/runs/43844979645) passed. Independent reviews found no unresolved defects. Release source and immutable tag: `84a2c06c8182f98573e54dcf2cd3239055918be5` (tree `5a222c600baf96523479a79f430c31b428830108`).
+- [Post-merge CI](https://github.com/Bowlerr/offline-markdown-preview/actions/runs/43845786688) and every verification job in the [release workflow](https://github.com/Bowlerr/offline-markdown-preview/actions/runs/43845786694) passed on all three operating systems and both VS Code targets. Unix unit runs pass 169 tests; Windows passes the applicable tests with the four POSIX-specific cases skipped.
+- [GitHub release 0.5.5](https://github.com/Bowlerr/offline-markdown-preview/releases/tag/0.5.5) is published. Its four changelog entries are followed by the required Marketplace and Open VSX installation links.
+- Canonical [VSIX download](https://github.com/Bowlerr/offline-markdown-preview/releases/download/0.5.5/offline-markdown-preview-0.5.5.vsix): **3,225,161 bytes**, 21 files, SHA-256 **`90057816bf7f7ff8c6d0c402ecc68fef5efb1f7a9b99c1732ae265dd128ffaaa`**. The downloaded bytes match GitHub's asset digest. All 21 uncompressed payloads match the reviewed final package. Four further real-editor journeys installed this exact downloaded artifact and passed rendering, search, standalone HTML and cold PDF export.
+- Registry publication is **incomplete**. The workflow's only failed jobs are publishing: Marketplace explicitly reports missing `VSCE_PAT`; Open VSX explicitly reports missing `OVSX_PAT`. Public lookups on November 16 still show 0.5.4 in both registries, with no Marketplace 0.5.5 entry and HTTP 404 for the Open VSX 0.5.5 endpoint. No registry artifact is claimed verified for 0.5.5.
+- Existing Keychain items were found only at services/accounts `vscode-vsce`/`bowlerr` and `ovsx`/`bowlerr`. Noninteractive password reads failed with macOS status -25293; a bounded native-keytar attempt also could not obtain access. No token was obtained, printed, changed or submitted, so token validity is unknown. No trust/ACL, login or Keychain-unlock changes were attempted. The user has been asked to choose an interactive Keychain approval or configure the two repository secrets.
+- Once access is available, publish **the existing canonical VSIX**, then verify both public versions and download hashes against the SHA-256 above. If repository secrets are configured, rerun the failed publishing jobs from the linked release workflow. Do not rebuild, replace the tag/asset, or bump the version to recover this authentication-only failure.
+- The external drive remained unmounted. All implementation and handoff records are committed remotely; the isolated local checkout and verification evidence remain under `/private/tmp/offline-markdown-preview-fortnightly-20261116` and `/private/tmp/omv-055-*`.
