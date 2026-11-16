@@ -5,6 +5,7 @@
 - Add cancellable PDF export progress and a shared 90-second deadline for local browser rendering
 - Stop cancelled or stalled PDF browser processes, clean up temporary files, and preserve the destination until rendering succeeds
 - Allow up to 15 minutes for registry publication to become visible, with clearer verification diagnostics
+- Keep real-editor CI on Ubuntu 24.04, supported by the pinned Playwright version
 
 ## 0.5.4
 
