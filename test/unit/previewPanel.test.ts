@@ -11,7 +11,9 @@ class EventEmitter<T> {
 
   readonly event = (listener: Listener<T>) => {
     this.listeners.push(listener);
-    return { dispose() {} };
+    return { dispose: () => {
+      this.listeners = this.listeners.filter((item) => item !== listener);
+    } };
   };
 
   fire(event: T): void {
@@ -88,6 +90,7 @@ function createPreviewPanelTestContext(options: {
   quickPickLabel?: string;
   openDialogPath?: string;
   saveDialogPath?: string;
+  progressAlreadyCancelled?: boolean;
   customCssUris?: InstanceType<typeof Uri>[];
   baseCssText?: string;
   initialPreviewUiState?: {
@@ -129,11 +132,24 @@ function createPreviewPanelTestContext(options: {
     key === 'preview.uiState' ? options.initialPreviewUiState : undefined
   );
   const globalStateUpdate = vi.fn().mockResolvedValue(undefined);
+  let outputDisposed = false;
   const outputChannel = {
-    appendLine: vi.fn(),
-    dispose: vi.fn()
+    appendLine: vi.fn(() => {
+      if (outputDisposed) throw new Error('Channel has been closed');
+    }),
+    dispose: vi.fn(() => { outputDisposed = true; })
   };
   const workspaceWriteFile = vi.fn().mockResolvedValue(undefined);
+  const progressCancellation = createEventHook<void>();
+  let progressCancelled = options.progressAlreadyCancelled ?? false;
+  const progressToken = {
+    get isCancellationRequested() { return progressCancelled; },
+    onCancellationRequested: progressCancellation.register
+  };
+  const progressReport = vi.fn();
+  const withProgress = vi.fn(async (_options: unknown, task: (
+    progress: { report: typeof progressReport }, token: typeof progressToken
+  ) => Promise<void>) => task({ report: progressReport }, progressToken));
 
   let activeTextEditor = options.activeEditorPath
     ? createTextEditor(options.activeEditorPath, {
@@ -287,6 +303,7 @@ function createPreviewPanelTestContext(options: {
         .mockResolvedValue(
           options.saveDialogPath ? Uri.file(options.saveDialogPath) : undefined
         ),
+      withProgress,
       showInformationMessage,
       showErrorMessage,
       showTextDocument,
@@ -301,6 +318,7 @@ function createPreviewPanelTestContext(options: {
     EventEmitter,
     TreeItem: class {},
     TreeItemCollapsibleState: { None: 0 },
+    ProgressLocation: { Notification: 15 },
     ColorThemeKind: {
       Light: 1,
       Dark: 2,
@@ -396,7 +414,11 @@ function createPreviewPanelTestContext(options: {
     securityMock,
     update,
     vscodeMock,
-    workspaceWriteFile
+    workspaceWriteFile,
+    cancelProgress: () => {
+      progressCancelled = true;
+      progressCancellation.fire();
+    }
   };
 }
 
@@ -1666,4 +1688,148 @@ describe('PreviewController custom CSS', () => {
       force: true
     });
   });
+  it.each([
+    ['timeout', 'navigation'], ['timeout', 'printing'],
+    ['cancel', 'navigation'], ['cancel', 'printing'],
+    ['dispose', 'navigation'], ['dispose', 'printing']
+  ] as const)('stops %s during %s without retries or replacing the PDF', async (stop, phase) => {
+    vi.useFakeTimers();
+    const { cancelProgress, fsMock, module, vscodeMock, workspaceWriteFile } =
+      await loadPreviewPanelTestModule({
+        workspaceFolderPaths: ['/workspace-a'], saveDialogPath: '/workspace-a/existing.pdf'
+      });
+    const controller = new module.PreviewController({
+      extensionUri: Uri.file('/extension'), globalStorageUri: Uri.file('/global-storage')
+    } as any);
+    const internal = controller as any;
+    internal.prepareExportPreview = vi.fn().mockResolvedValue(true);
+    internal.state = { snapshot: { uri: Uri.file('/workspace-a/doc.md') }, toc: [] };
+    internal.requestRenderedHtmlExportSnapshot = vi.fn().mockResolvedValue({ html: '<p>Rendered</p>' });
+    internal.buildStandaloneHtml = vi.fn().mockResolvedValue('<html>fixture</html>');
+    internal.getHeadlessBrowserCandidates = () => ['chromium', 'fallback-browser'];
+    internal.runHeadlessBrowser = vi.fn((_command: string, args: string[], signal: AbortSignal) => {
+      if (phase === 'printing' && args.includes('--dump-dom')) {
+        return Promise.resolve({ ok: true, code: 0, stderr: '', stdout:
+          '<html data-omv-pdf-ready="true"><meta name="offline-markdown-preview-export" content="ready"></html>' });
+      }
+      return new Promise((resolve) => {
+        signal.addEventListener('abort', () => resolve({
+          ok: false, code: 'ABORTED', stdout: '', stderr: ''
+        }), { once: true });
+      });
+    });
+    const pending = controller.exportPdf();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(internal.runHeadlessBrowser).toHaveBeenCalledTimes(phase === 'printing' ? 2 : 1);
+    if (stop === 'timeout') await vi.advanceTimersByTimeAsync(90_000);
+    else if (stop === 'cancel') cancelProgress();
+    else controller.dispose();
+    await pending;
+
+    expect(internal.runHeadlessBrowser).toHaveBeenCalledTimes(phase === 'printing' ? 2 : 1);
+    expect(workspaceWriteFile).not.toHaveBeenCalled();
+    expect(fsMock.rm).toHaveBeenLastCalledWith('/tmp/omv-pdf-test', { recursive: true, force: true });
+    expect(vscodeMock.window.showInformationMessage).not.toHaveBeenCalled();
+    if (stop === 'timeout') {
+      expect(vscodeMock.window.showErrorMessage).toHaveBeenCalledWith(expect.stringContaining('timed out after 90 seconds'));
+    } else {
+      expect(vscodeMock.window.showErrorMessage).not.toHaveBeenCalled();
+    }
+    expect(vscodeMock.window.withProgress).toHaveBeenCalledWith(
+      expect.objectContaining({ location: 15, cancellable: true }), expect.any(Function)
+    );
+    expect(internal.activePdfExports.size).toBe(0);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('checks cancellation again after reading the staged PDF', async () => {
+    const { cancelProgress, fsMock, module, workspaceWriteFile } =
+      await loadPreviewPanelTestModule({
+        workspaceFolderPaths: ['/workspace-a'], saveDialogPath: '/workspace-a/existing.pdf'
+      });
+    const controller = new module.PreviewController({
+      extensionUri: Uri.file('/extension'), globalStorageUri: Uri.file('/global-storage')
+    } as any);
+    const internal = controller as any;
+    internal.prepareExportPreview = vi.fn().mockResolvedValue(true);
+    internal.state = { snapshot: { uri: Uri.file('/workspace-a/doc.md') }, toc: [] };
+    internal.requestRenderedHtmlExportSnapshot = vi.fn().mockResolvedValue({ html: '<p>Rendered</p>' });
+    internal.buildStandaloneHtml = vi.fn().mockResolvedValue('<html>fixture</html>');
+    internal.tryHeadlessPdfExport = vi.fn().mockResolvedValue({ ok: true });
+    fsMock.readFile.mockImplementationOnce(async () => {
+      cancelProgress();
+      return Buffer.from('%PDF fixture');
+    });
+    await controller.exportPdf();
+    expect(workspaceWriteFile).not.toHaveBeenCalled();
+    expect(fsMock.rm).toHaveBeenLastCalledWith('/tmp/omv-pdf-test', { recursive: true, force: true });
+  });
+
+  it('does not prepare temporary files when progress was already cancelled', async () => {
+    const { fsMock, module, workspaceWriteFile } = await loadPreviewPanelTestModule({
+      workspaceFolderPaths: ['/workspace-a'], saveDialogPath: '/workspace-a/existing.pdf',
+      progressAlreadyCancelled: true
+    });
+    const controller = new module.PreviewController({
+      extensionUri: Uri.file('/extension'), globalStorageUri: Uri.file('/global-storage')
+    } as any);
+    const internal = controller as any;
+    internal.prepareExportPreview = vi.fn().mockResolvedValue(true);
+    internal.state = { snapshot: { uri: Uri.file('/workspace-a/doc.md') }, toc: [] };
+    internal.requestRenderedHtmlExportSnapshot = vi.fn().mockResolvedValue({ html: '<p>Rendered</p>' });
+    await controller.exportPdf();
+    expect(fsMock.mkdtemp).not.toHaveBeenCalled();
+    expect(workspaceWriteFile).not.toHaveBeenCalled();
+    expect(internal.activePdfExports.size).toBe(0);
+  });
+
+  it.each(['before launch', 'after navigation'])('does not start another browser when cancelled %s', async (when) => {
+    const { module } = await loadPreviewPanelTestModule({ workspaceFolderPaths: ['/workspace-a'] });
+    const controller = new module.PreviewController({ extensionUri: Uri.file('/extension'), globalStorageUri: Uri.file('/global-storage') } as any);
+    const internal = controller as any;
+    const abort = new AbortController();
+    internal.getHeadlessBrowserCandidates = () => ['chromium', 'fallback-browser'];
+    internal.runHeadlessBrowser = vi.fn(async () => {
+      abort.abort(new Error('cancelled between phases'));
+      return { ok: true, code: 0, stderr: '', stdout: '<html data-omv-pdf-ready="true"><meta name="offline-markdown-preview-export" content="ready"></html>' };
+    });
+    if (when === 'before launch') abort.abort(new Error('cancelled before launch'));
+    await expect(internal.tryHeadlessPdfExport(Uri.file('/tmp/source.html'), Uri.file('/tmp/output.pdf'), abort.signal)).rejects.toThrow('cancelled');
+    expect(internal.runHeadlessBrowser).toHaveBeenCalledTimes(when === 'before launch' ? 0 : 1);
+  });
+
+  it('shares one wall-clock budget across browser fallback attempts', async () => {
+    vi.useFakeTimers();
+    const { fsMock, module, vscodeMock, workspaceWriteFile } =
+      await loadPreviewPanelTestModule({ workspaceFolderPaths: ['/workspace-a'], saveDialogPath: '/workspace-a/existing.pdf' });
+    const controller = new module.PreviewController({ extensionUri: Uri.file('/extension'), globalStorageUri: Uri.file('/global-storage') } as any);
+    const internal = controller as any;
+    internal.prepareExportPreview = vi.fn().mockResolvedValue(true);
+    internal.state = { snapshot: { uri: Uri.file('/workspace-a/doc.md') }, toc: [] };
+    internal.requestRenderedHtmlExportSnapshot = vi.fn().mockResolvedValue({ html: '<p>Rendered</p>' });
+    internal.buildStandaloneHtml = vi.fn().mockResolvedValue('<html>fixture</html>');
+    internal.getHeadlessBrowserCandidates = () => ['chromium', 'fallback-browser'];
+    internal.runHeadlessBrowser = vi.fn()
+      .mockImplementationOnce(() => new Promise((resolve) => setTimeout(() => resolve({
+        ok: false, code: 1, stdout: '', stderr: 'unsupported mode'
+      }), 40_000)))
+      .mockImplementation((_command: string, _args: string[], signal: AbortSignal) => new Promise((resolve) => {
+        signal.addEventListener('abort', () => resolve({ ok: false, code: 'ABORTED', stdout: '', stderr: '' }), { once: true });
+      }));
+    const pending = controller.exportPdf();
+    await vi.advanceTimersByTimeAsync(40_000);
+    expect(internal.runHeadlessBrowser).toHaveBeenCalledTimes(2);
+    const secondSignal = internal.runHeadlessBrowser.mock.calls[1][2] as AbortSignal;
+    await vi.advanceTimersByTimeAsync(49_999);
+    expect(secondSignal.aborted).toBe(false);
+    await vi.advanceTimersByTimeAsync(1);
+    await pending;
+    expect(secondSignal.aborted).toBe(true);
+    expect(internal.runHeadlessBrowser).toHaveBeenCalledTimes(2);
+    expect(workspaceWriteFile).not.toHaveBeenCalled();
+    expect(fsMock.rm).toHaveBeenLastCalledWith('/tmp/omv-pdf-test', { recursive: true, force: true });
+    expect(vscodeMock.window.showErrorMessage).toHaveBeenCalledWith(expect.stringContaining('timed out after 90 seconds'));
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
 });

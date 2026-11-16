@@ -1,7 +1,6 @@
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import * as vscode from 'vscode';
 
@@ -27,6 +26,7 @@ import {
   serializeHtmlSrcset,
   setHtmlAttribute
 } from './htmlImageTags';
+import { runHeadlessProcess, type ProcessResult } from './headlessProcess';
 import { renderMarkdown } from './markdown/markdownPipeline';
 import {
   fileSizeBytes,
@@ -59,17 +59,11 @@ interface HtmlExportSnapshotData {
   themeVariables?: Record<string, string>;
 }
 
-interface ProcessResult {
-  ok: boolean;
-  code: number | string;
-  stdout: string;
-  stderr: string;
-}
-
 const PDF_EXPORT_DOCUMENT_MARKER =
   '<meta name="offline-markdown-preview-export" content="ready">';
 const PDF_EXPORT_READY_ATTRIBUTE = 'data-omv-pdf-ready="true"';
 const PDF_EXPORT_VIRTUAL_TIME_BUDGET_MS = 10_000;
+const PDF_EXPORT_TIMEOUT_MS = 90_000;
 
 function withSvgFragment(url: string, uri: vscode.Uri): string {
   if (!uri.fragment || path.extname(uri.fsPath || uri.path).toLowerCase() !== '.svg') {
@@ -222,6 +216,8 @@ export class MarkdownOutlineProvider
 
 export class PreviewController implements vscode.Disposable {
   private readonly disposables: vscode.Disposable[] = [];
+  private readonly activePdfExports = new Set<AbortController>();
+  private disposed = false;
   private readonly output: vscode.OutputChannel;
   private panel: vscode.WebviewPanel | undefined;
   private currentEditor: vscode.TextEditor | undefined;
@@ -592,66 +588,103 @@ export class PreviewController implements vscode.Disposable {
     });
     if (!target) return;
 
-    let tempDir: string | undefined;
-    try {
-      const document = await this.buildStandaloneHtml(
-        html,
-        snapshot.uri,
-        settings,
-        renderedSnapshot.themeVariables,
-        true,
-        snapshot.frontmatter
-      );
-      tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'omv-pdf-'));
-      const tempHtmlPath = path.join(
-        tempDir,
-        `${path.basename(snapshot.uri.fsPath).replace(/\.md$/i, '')}.print.html`
-      );
-      const stagedPdfPath = path.join(tempDir, 'rendered.pdf');
-      await fs.writeFile(tempHtmlPath, document, 'utf8');
-
-      this.logPdfDiagnostic(`Temporary HTML: ${tempHtmlPath}`);
-      this.logPdfDiagnostic(`Staged PDF: ${stagedPdfPath}`);
-      this.logPdfDiagnostic(`Requested PDF target: ${target.fsPath}`);
-
-      const pdfExport = await this.tryHeadlessPdfExport(
-        vscode.Uri.file(tempHtmlPath),
-        vscode.Uri.file(stagedPdfPath)
-      );
-      if (!pdfExport.ok) {
-        void vscode.window.showErrorMessage(
-          `PDF export failed: ${pdfExport.reason}. See the Offline Markdown Preview output for details.`
-        );
-        return;
-      }
-
-      const pdfBytes = await fs.readFile(stagedPdfPath);
-      await vscode.workspace.fs.writeFile(target, pdfBytes);
-      this.logPdfDiagnostic(
-        `PDF export completed (${pdfBytes.byteLength} bytes written).`
-      );
-      void vscode.window.showInformationMessage(
-        `Exported PDF to ${target.fsPath}`
-      );
-    } catch (error) {
-      const message = getErrorMessage(error);
-      this.logPdfDiagnostic(`PDF export failed: ${message}`);
-      void vscode.window.showErrorMessage(
-        `PDF export failed: ${message}. See the Offline Markdown Preview output for details.`
-      );
-    } finally {
-      if (tempDir) {
-        this.logPdfDiagnostic(`Cleaning temporary PDF files: ${tempDir}`);
+    await vscode.window.withProgress(
+      {
+        location: vscode.ProgressLocation.Notification,
+        title: 'Exporting PDF',
+        cancellable: true
+      },
+      async (progress, token) => {
+        const abort = new AbortController();
+        this.activePdfExports.add(abort);
+        let timedOut = false;
+        const cancel = token.onCancellationRequested(() => {
+          abort.abort(new Error('PDF export cancelled'));
+        });
+        if (token.isCancellationRequested || this.disposed) {
+          abort.abort(new Error('PDF export cancelled'));
+        }
+        const deadline = setTimeout(() => {
+          if (!abort.signal.aborted) {
+            timedOut = true;
+            abort.abort(new Error('rendering timed out after 90 seconds'));
+          }
+        }, PDF_EXPORT_TIMEOUT_MS);
+        let tempDir: string | undefined;
         try {
-          await fs.rm(tempDir, { recursive: true, force: true });
-          this.logPdfDiagnostic(`Temporary PDF files removed: ${tempDir}`);
-        } catch (error) {
-          this.logPdfDiagnostic(
-            `Temporary PDF cleanup failed for ${tempDir}: ${getErrorMessage(error)}`
+          abort.signal.throwIfAborted();
+          progress.report({ message: 'Preparing document…' });
+          const document = await this.buildStandaloneHtml(
+            html,
+            snapshot.uri,
+            settings,
+            renderedSnapshot.themeVariables,
+            true,
+            snapshot.frontmatter
           );
+          abort.signal.throwIfAborted();
+          tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'omv-pdf-'));
+          abort.signal.throwIfAborted();
+          const tempHtmlPath = path.join(
+            tempDir,
+            `${path.basename(snapshot.uri.fsPath).replace(/\.md$/i, '')}.print.html`
+          );
+          const stagedPdfPath = path.join(tempDir, 'rendered.pdf');
+          await fs.writeFile(tempHtmlPath, document, 'utf8');
+          abort.signal.throwIfAborted();
+
+          this.logPdfDiagnostic(`Temporary HTML: ${tempHtmlPath}`);
+          this.logPdfDiagnostic(`Staged PDF: ${stagedPdfPath}`);
+          this.logPdfDiagnostic(`Requested PDF target: ${target.fsPath}`);
+          progress.report({ message: 'Rendering document…' });
+          const pdfExport = await this.tryHeadlessPdfExport(
+            vscode.Uri.file(tempHtmlPath),
+            vscode.Uri.file(stagedPdfPath),
+            abort.signal
+          );
+          abort.signal.throwIfAborted();
+          if (!pdfExport.ok) {
+            throw new Error(pdfExport.reason);
+          }
+
+          const pdfBytes = await fs.readFile(stagedPdfPath);
+          abort.signal.throwIfAborted();
+          // The destination write is the commit point: cancellation applies before it.
+          clearTimeout(deadline);
+          cancel.dispose();
+          this.activePdfExports.delete(abort);
+          progress.report({ message: 'Saving PDF…' });
+          await vscode.workspace.fs.writeFile(target, pdfBytes);
+          this.logPdfDiagnostic(
+            `PDF export completed (${pdfBytes.byteLength} bytes written).`
+          );
+          void vscode.window.showInformationMessage(
+            `Exported PDF to ${target.fsPath}`
+          );
+        } catch (error) {
+          const message = getErrorMessage(error);
+          this.logPdfDiagnostic(`PDF export stopped: ${message}`);
+          if (!abort.signal.aborted || timedOut) {
+            void vscode.window.showErrorMessage(
+              `PDF export failed: ${message}. See the Offline Markdown Preview output for details.`
+            );
+          }
+        } finally {
+          clearTimeout(deadline);
+          cancel.dispose();
+          this.activePdfExports.delete(abort);
+          if (tempDir) {
+            this.logPdfDiagnostic(`Cleaning temporary PDF files: ${tempDir}`);
+            await fs.rm(tempDir, { recursive: true, force: true }).then(
+              () => this.logPdfDiagnostic(`Temporary PDF files removed: ${tempDir}`),
+              (error: unknown) => this.logPdfDiagnostic(
+                `Temporary PDF cleanup failed for ${tempDir}: ${getErrorMessage(error)}`
+              )
+            );
+          }
         }
       }
-    }
+    );
   }
 
   async toggleScrollSync(): Promise<void> {
@@ -2041,7 +2074,8 @@ export class PreviewController implements vscode.Disposable {
 
   private async tryHeadlessPdfExport(
     sourceHtmlUri: vscode.Uri,
-    targetPdfUri: vscode.Uri
+    targetPdfUri: vscode.Uri,
+    signal?: AbortSignal
   ): Promise<{ ok: true } | { ok: false; reason: string }> {
     const candidates = this.getHeadlessBrowserCandidates();
     const htmlUrl = buildPdfNavigationUrl(sourceHtmlUri);
@@ -2051,6 +2085,7 @@ export class PreviewController implements vscode.Disposable {
     this.logPdfDiagnostic(`PDF navigation URL: ${htmlUrl}`);
 
     for (const candidate of candidates) {
+      signal?.throwIfAborted();
       if (path.isAbsolute(candidate)) {
         try {
           await fs.access(candidate);
@@ -2060,6 +2095,7 @@ export class PreviewController implements vscode.Disposable {
       }
 
       for (const headlessMode of ['--headless=new', '--headless']) {
+        signal?.throwIfAborted();
         try {
           await fs.access(sourceHtmlUri.fsPath);
           this.logPdfDiagnostic(
@@ -2093,7 +2129,11 @@ export class PreviewController implements vscode.Disposable {
           ...sharedArgs,
           '--dump-dom',
           htmlUrl
-        ]);
+        ], signal);
+        signal?.throwIfAborted();
+        if (navigationResult.code === 'ABORTED') {
+          return { ok: false, reason: 'PDF export cancelled' };
+        }
 
         this.logPdfDiagnostic(
           `Navigation validation completed with status ${String(navigationResult.code)}${navigationResult.stderr.trim() ? `; stderr: ${summarizeProcessOutput(navigationResult.stderr)}` : ''}`
@@ -2123,7 +2163,11 @@ export class PreviewController implements vscode.Disposable {
           '--no-pdf-header-footer',
           `--print-to-pdf=${targetPdfUri.fsPath}`,
           htmlUrl
-        ]);
+        ], signal);
+        signal?.throwIfAborted();
+        if (pdfResult.code === 'ABORTED') {
+          return { ok: false, reason: 'PDF export cancelled' };
+        }
         this.logPdfDiagnostic(
           `PDF renderer completed with status ${String(pdfResult.code)}${pdfResult.stderr.trim() ? `; stderr: ${summarizeProcessOutput(pdfResult.stderr)}` : ''}`
         );
@@ -2162,9 +2206,10 @@ export class PreviewController implements vscode.Disposable {
 
   private runHeadlessBrowser(
     command: string,
-    args: string[]
+    args: string[],
+    signal?: AbortSignal
   ): Promise<ProcessResult> {
-    return runProcess(command, args);
+    return runHeadlessProcess(command, args, signal);
   }
 
   private async buildStandaloneHtml(
@@ -2268,10 +2313,15 @@ ${pdfReadinessScript}</body>
   }
 
   private logPdfDiagnostic(message: string): void {
+    if (this.disposed) return;
     this.output.appendLine(`[PDF ${new Date().toISOString()}] ${message}`);
   }
 
   dispose(): void {
+    this.disposed = true;
+    for (const abort of this.activePdfExports) {
+      abort.abort(new Error('PDF export stopped because the extension was disposed'));
+    }
     this.updateWebviewReady(false);
     if (this.renderTimer) clearTimeout(this.renderTimer);
     if (this.pendingHtmlExportSnapshot) {
@@ -2484,52 +2534,4 @@ function getHeadlessBrowserCandidates(): string[] {
   }
 
   return [...candidates];
-}
-
-async function runProcess(
-  command: string,
-  args: string[]
-): Promise<ProcessResult> {
-  return new Promise((resolve) => {
-    let stdout = '';
-    let stderr = '';
-    let settled = false;
-    const child = spawn(command, args, {
-      stdio: ['ignore', 'pipe', 'pipe']
-    });
-
-    child.stdout?.on('data', (chunk: Buffer | string) => {
-      stdout += typeof chunk === 'string' ? chunk : chunk.toString('utf8');
-    });
-
-    child.stderr?.on('data', (chunk: Buffer | string) => {
-      stderr += typeof chunk === 'string' ? chunk : chunk.toString('utf8');
-    });
-
-    child.on('error', (error: NodeJS.ErrnoException) => {
-      if (settled) return;
-      settled = true;
-      resolve({
-        ok: false,
-        code: error.code ?? 'ERROR',
-        stdout,
-        stderr: error.message
-      });
-    });
-
-    child.on('close', (code) => {
-      if (settled) return;
-      settled = true;
-      if (code === 0) {
-        resolve({ ok: true, code, stdout, stderr });
-      } else {
-        resolve({
-          ok: false,
-          code: code ?? 'UNKNOWN',
-          stdout,
-          stderr
-        });
-      }
-    });
-  });
 }
