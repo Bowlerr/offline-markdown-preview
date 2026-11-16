@@ -24,7 +24,10 @@ test('exports the actual rendered preview to a standalone HTML file', async ({
   const target = join(vscode.workspace, 'journey.html');
   await saveInput.fill(target);
   await saveInput.press('Enter');
-  const html = (await waitForFile(target)).toString('utf8');
+  const html = (await waitForFile(
+    target,
+    (bytes) => bytes.toString('utf8').trimEnd().endsWith('</html>')
+  )).toString('utf8');
   expect(html).toContain('Release Journey');
   expect(html).toContain('katex');
   expect(html).toContain('<svg');
@@ -73,7 +76,11 @@ test('exports a PDF from a cold preview through the real command and Chromium re
   await saveInput.press('Enter');
   // PDF export starts two Chromium processes; virtual-time budgets do not bound
   // their wall time on a busy CI worker. Keep a finite deadline for the real file.
-  const pdf = await waitForFile(target, 60_000);
+  const pdf = await waitForFile(
+    target,
+    (bytes) => bytes.subarray(-1024).toString('latin1').trimEnd().endsWith('%%EOF'),
+    60_000
+  );
   expect(pdf.subarray(0, 5).toString()).toBe('%PDF-');
   expect(pdf.length).toBeGreaterThan(5000);
   expect(pdf.subarray(-1024).toString()).toContain('%%EOF');

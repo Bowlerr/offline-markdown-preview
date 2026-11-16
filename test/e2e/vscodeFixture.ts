@@ -266,6 +266,7 @@ export { expect };
 
 export async function waitForFile(
   path: string,
+  isComplete: (bytes: Buffer) => boolean,
   timeout = 30_000
 ): Promise<Buffer> {
   let bytes: Buffer | undefined;
@@ -274,13 +275,13 @@ export async function waitForFile(
       async () => {
         try {
           bytes = await readFile(path);
-          return bytes.length;
+          return isComplete(bytes);
         } catch {
-          return 0;
+          return false;
         }
       },
-      { timeout, message: `Export should write ${path}` }
+      { timeout, message: `Export should finish writing ${path}` }
     )
-    .toBeGreaterThan(0);
+    .toBe(true);
   return bytes!;
 }
