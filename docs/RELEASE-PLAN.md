@@ -113,6 +113,30 @@ After 0.5.0 publication, the user requested a new logo based on an attached blue
 - Consider a persistent preview lock and richer Markdown workspace navigation after current lifecycle behavior is tested.
 - Evaluate additional export layout controls against real authoring needs after export safety and fidelity are verified.
 - Consider an explicit print-friendly palette option; exports now preserve the captured preview background/foreground to keep translucent diagram backgrounds legible.
-- Add an explicit wall-clock deadline and cancellation/progress for PDF browser subprocesses; Chromium's virtual-time budget does not bound real process duration.
+- Review compatible development-tool updates for the November minimatch/glob advisories; do not force cross-major overrides or suggested major downgrades.
 - Consider architectural extraction from the large preview controller where it simplifies future changes; avoid a broad rewrite in this delivery.
 - Evaluate publishing identity modernization when account configuration is available; keep release authentication aligned with official guidance.
+
+## Fortnightly cycle: November 16, 2026 — 0.5.5
+
+Baseline: `ba6894242cbc79f50792d84418b7971b7dafd6ee`, published version 0.5.4. No open issues or PRs, no newer release or source changes, and the last main CI run passed all OS and editor targets. The external workspace drive was unmounted, so work uses an isolated checkout at `/private/tmp/offline-markdown-preview-fortnightly-20261116`; no unavailable local work was changed.
+
+Selected scope: complete the previously deferred PDF process deadline/cancellation and correct registry verification's short propagation window. The PDF subprocess had no wall-clock limit, leaving its promise and temporary HTML pending if Chromium stalled. The registry polling allowed roughly one minute even though the previous successful Marketplace publication took about six minutes.
+
+- PDF exports now show cancellable progress, share a 90-second rendering deadline across browser phases/candidates, stop retrying after cancellation, and check cancellation before committing the destination write. Controller disposal stops active rendering jobs. Temporary files remain under the existing cleanup boundary.
+- Registry verification polls for up to 15 minutes with useful attempt and final-failure diagnostics; canonical VSIX and immutable release handling are retained.
+- Independent dependency audit: zero production findings; 12 moderate development package entries across UUID, minimatch and glob advisories; zero high/critical findings. Major dependency contract changes are deferred for compatibility review (details in CONTRIBUTING.md).
+- Branding assets, original logo master, supported-editor guidance and issue-reporting links remain unchanged. Packaging still enforces icon dimensions and size.
+- Context7 tools were unavailable. Process cancellation and progress APIs were checked against official Node 22.22.1 and VS Code documentation instead.
+
+Candidate evidence:
+
+- Node 22.22.1 clean install, lint, strict types, production build and all 169 unit tests pass. Nine tests spawn actual processes, covering cancellation, ignored termination, inherited pipes, bounded stream teardown, large DOM output, missing executables and normal exit. POSIX-only process-group cases are skipped on Windows; the direct cancellation test runs on every OS.
+- Independent review found and resolved two issues before publication: a proposed output cap rejected valid embedded-image documents, and logging after controller disposal could interrupt cleanup. Large output remains supported and the disposed-channel test now reproduces the editor's throwing behavior.
+- The actual registry verification shell passed 16 mocked scenarios using real response validators, including immediate and six-minute delayed success, recovery, transport failures, malformed/unexpected/null data, and wrong versions. No real waits or network requests were needed for these simulations.
+- Packaging passes the original icon guards and contains 21 files; the original logo master, source, tests, dependencies and source maps remain excluded. Runtime payloads match the tested build.
+- Real VS Code 1.145.3 HTML and cold PDF exports pass. The full initial editor suite exposed an existing test setup race: live editing began while heading navigation was still animating. Waiting for meaningful movement and stable scroll samples fixes the setup; the heading-focus and ±100-pixel preservation assertions and zero-retry policy remain unchanged. Three isolated verification runs pass. All eight journeys then passed with the actual 0.5.5 VSIX installed into isolated VS Code 1.145.3 profiles, including rendering, HTML/PDF, search, scroll preservation and diagrams. Local candidate: 3,225,116 bytes; SHA-256 `c54a0ea5869e3d34400dd3a3d31d6cb285af40313a3834df079976b73a2f6083`. GitHub CI and publication evidence follow after the remote gates.
+
+Termination scope: cancellation targets only the spawned browser's POSIX process group or Windows process tree. Deliberately detached descendants can escape that group; inherited output-stream waits still have a finite fallback. Windows uses the OS tree termination tool and falls back to terminating the owned parent if that tool fails. These OS limitations are not a claim that arbitrary detached processes can always be stopped.
+
+Local publishing PATs and the established vsce file are absent; repository-secret readiness will be checked by the authorized release workflow. Personal Chrome control is unavailable in this session.

@@ -39,7 +39,9 @@ Set `VSCODE_EXECUTABLE_PATH` to test an existing VS Code executable, or `OMV_E2E
 
 The dependency overrides intentionally share patched KaTeX between the preview and Mermaid while preserving Mermaid 11 layouts, and keep publishing tooling on Azure Identity 4.13.0 (the compatible MSAL 3 dependency line) until its newer dependency resolves GHSA-xcx6-jx8p-x3h5. Reassess these overrides with upstream updates and rendering/publishing checks.
 
-The October 2026 audit reports no production advisories. Three moderate development dependency entries share GHSA-w5hq-g745-h8pq in MSAL's UUID 8 dependency; its affected v3/v5/v6 buffer functions are not used by MSAL's `uuid.v4()` call. These publishing tools are excluded from the VSIX. We retain the supported dependency contract instead of forcing UUID across major versions; reassess when Azure publishes compatible fixes.
+The November 16, 2026 audit reports no production advisories and no high or critical advisories. Twelve moderate development dependency entries cover three underlying advisories. The existing GHSA-w5hq-g745-h8pq affects MSAL's UUID 8 dependency; its affected v3/v5/v6 buffer functions are not used by MSAL's `uuid.v4()` call. These publishing tools are excluded from the VSIX. We retain the supported dependency contract instead of forcing UUID across major versions; reassess when Azure publishes compatible fixes.
+
+The new development-only findings are [minimatch glob parsing](https://github.com/advisories/GHSA-g3hv-75wg-m249) and [glob cancellation](https://github.com/advisories/GHSA-3g3m-2fjr-6pw4), through lint and publishing tools. Their patched releases require major-version compatibility review (minimatch 11.0.1 and glob 14.0.2); they are not bundled in the extension. Avoid the audit command's suggested major downgrades. Track compatible upstream updates and rerun lint, packaging, and publishing checks before changing these dependency contracts.
 
 ## Reporting Issues
 

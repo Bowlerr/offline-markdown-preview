@@ -91,7 +91,7 @@ The contents list keeps keyboard focus when you select a heading. Diagram contro
 Use the preview's **Export** button or run **Offline Markdown Preview: Export HTML** or **Offline Markdown Preview: Export PDF**.
 
 - **HTML:** saves the rendered document and styles. Local images remain file references by default. To include their contents in the HTML file, enable `offlineMarkdownViewer.export.embedImages` and review the confirmation before exporting.
-- **PDF:** uses a local Chrome, Edge, or Chromium installation. It waits for images and fonts; layout can vary slightly by browser and platform.
+- **PDF:** uses a local Chrome, Edge, or Chromium installation. It waits for images and fonts; layout can vary slightly by browser and platform. Rendering shows cancellable progress and stops after 90 seconds if the browser stalls. Cancelling before the final save leaves an existing destination file untouched.
 - **Consistent output:** export captures a completed preview. A document change during capture or a preview-rendering timeout cancels the export with a message so you can retry.
 
 Exports block remote images by default and prevent document scripts from running. Enabling remote images also enables them during export. See [export settings and limits](docs/CONFIGURATION.md#export).

@@ -151,14 +151,45 @@ jobs:
           fi
           npx --no-install vsce publish --packagePath "offline-markdown-preview-$RELEASE_VERSION.vsix" --skip-duplicate
       - name: Verify Marketplace version
+        timeout-minutes: 16
         env:
           RELEASE_VERSION: ${{ needs.version.outputs.version }}
         run: |
-          for attempt in 1 2 3 4 5 6; do
-            if npx --no-install vsce show bowlerr.offline-markdown-preview --json > marketplace.json && node -e "const p=require('./marketplace.json');process.exit(p.versions.some(v=>v.version===process.env.RELEASE_VERSION)?0:1)"; then exit 0; fi
-            sleep 10
+          deadline=$((SECONDS + 900))
+          attempt=0
+          while [ "$SECONDS" -lt "$deadline" ]; do
+            remaining=$((deadline - SECONDS))
+            if [ "$remaining" -le 0 ]; then break; fi
+            attempt=$((attempt + 1))
+            request_timeout=$((remaining < 30 ? remaining : 30))
+            echo "Marketplace verification attempt $attempt: looking for $RELEASE_VERSION (${remaining}s left)."
+            if timeout --kill-after=5s "${request_timeout}s" npx --no-install vsce show bowlerr.offline-markdown-preview --json > marketplace.json 2> marketplace-status.txt && node <<'NODE' >> marketplace-status.txt 2>&1
+          const fs = require('node:fs');
+          const response = JSON.parse(fs.readFileSync('marketplace.json', 'utf8'));
+          if (!Array.isArray(response?.versions) || !response.versions.every(entry => typeof entry?.version === 'string')) {
+            throw new Error('Unexpected Marketplace response: expected versions[].version strings.');
+          }
+          const versions = response.versions.map(entry => entry.version);
+          const found = versions.includes(process.env.RELEASE_VERSION);
+          console.log(found
+            ? `Verified Marketplace version ${process.env.RELEASE_VERSION}.`
+            : `Marketplace has not reported ${process.env.RELEASE_VERSION}; recent versions: ${JSON.stringify(versions.slice(0, 5))}.`);
+          process.exitCode = found ? 0 : 1;
+          NODE
+            then
+              cat marketplace-status.txt
+              exit 0
+            else
+              last_status=$?
+              echo "Marketplace check did not confirm publication (exit $last_status)."
+              cat marketplace-status.txt
+            fi
+            remaining=$((deadline - SECONDS))
+            if [ "$remaining" -le 0 ]; then break; fi
+            sleep "$((remaining < 30 ? remaining : 30))"
           done
-          echo '::error::Marketplace has not reported the published version.'
+          echo "::error::Marketplace did not report $RELEASE_VERSION within 15 minutes. Check publisher processing status; the last verification exited $last_status."
+          cat marketplace-status.txt
           exit 1
 
   open-vsx:
@@ -187,8 +218,43 @@ jobs:
           fi
           npx --no-install ovsx publish "offline-markdown-preview-$RELEASE_VERSION.vsix" --skip-duplicate
       - name: Verify Open VSX version
+        timeout-minutes: 16
         env:
           RELEASE_VERSION: ${{ needs.version.outputs.version }}
         run: |
-          curl --fail --silent --show-error --retry 5 --retry-all-errors --retry-delay 10 "https://open-vsx.org/api/bowlerr/offline-markdown-preview/$RELEASE_VERSION" -o open-vsx.json
-          node -e "const p=require('./open-vsx.json');if(p.version!==process.env.RELEASE_VERSION)throw new Error('Open VSX version mismatch')"
+          deadline=$((SECONDS + 900))
+          attempt=0
+          while [ "$SECONDS" -lt "$deadline" ]; do
+            remaining=$((deadline - SECONDS))
+            if [ "$remaining" -le 0 ]; then break; fi
+            attempt=$((attempt + 1))
+            request_timeout=$((remaining < 30 ? remaining : 30))
+            echo "Open VSX verification attempt $attempt: looking for $RELEASE_VERSION (${remaining}s left)."
+            if curl --fail --silent --show-error --connect-timeout 10 --max-time "$request_timeout" "https://open-vsx.org/api/bowlerr/offline-markdown-preview/$RELEASE_VERSION" -o open-vsx.json 2> open-vsx-status.txt && node <<'NODE' >> open-vsx-status.txt 2>&1
+          const fs = require('node:fs');
+          const response = JSON.parse(fs.readFileSync('open-vsx.json', 'utf8'));
+          const version = response?.version;
+          if (typeof version !== 'string') {
+            throw new Error('Unexpected Open VSX response: expected a version string.');
+          }
+          const found = version === process.env.RELEASE_VERSION;
+          console.log(found
+            ? `Verified Open VSX version ${version}.`
+            : `Open VSX returned ${JSON.stringify(version)}; waiting for ${process.env.RELEASE_VERSION}.`);
+          process.exitCode = found ? 0 : 1;
+          NODE
+            then
+              cat open-vsx-status.txt
+              exit 0
+            else
+              last_status=$?
+              echo "Open VSX check did not confirm publication (exit $last_status)."
+              cat open-vsx-status.txt
+            fi
+            remaining=$((deadline - SECONDS))
+            if [ "$remaining" -le 0 ]; then break; fi
+            sleep "$((remaining < 30 ? remaining : 30))"
+          done
+          echo "::error::Open VSX did not report $RELEASE_VERSION within 15 minutes. Check registry processing status; the last verification exited $last_status."
+          cat open-vsx-status.txt
+          exit 1

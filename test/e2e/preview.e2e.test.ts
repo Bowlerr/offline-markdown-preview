@@ -181,6 +181,25 @@ test('live edits update the active preview and preserve scroll position', async 
   await heading.press('Enter');
   await expect(heading).toBeFocused();
   const scroller = preview.locator('.omv-preview-scroll');
+  // Finish smooth heading navigation before establishing the live-edit baseline.
+  let lastScrollTop = -1;
+  let stableSamples = 0;
+  await expect
+    .poll(
+      async () => {
+        const scrollTop = await scroller.evaluate(
+          (element) => element.scrollTop
+        );
+        stableSamples =
+          scrollTop > 1000 && scrollTop === lastScrollTop
+            ? stableSamples + 1
+            : 0;
+        lastScrollTop = scrollTop;
+        return stableSamples;
+      },
+      { intervals: [50] }
+    )
+    .toBeGreaterThanOrEqual(3);
   await scroller.evaluate((element) => {
     element.scrollTop = 1400;
   });

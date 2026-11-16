@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.5.5
+
+- Add cancellable PDF export progress and a shared 90-second deadline for local browser rendering
+- Stop cancelled or stalled PDF browser processes, clean up temporary files, and preserve the destination until rendering succeeds
+- Allow up to 15 minutes for registry publication to become visible, with clearer verification diagnostics
+
 ## 0.5.4
 
 - Export the approved logo at 1024 pixels for Marketplace compatibility while preserving the original master and unchanged banner
